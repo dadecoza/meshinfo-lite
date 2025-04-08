@@ -4,58 +4,216 @@
 {% block title %}Traceroutes | MeshInfo{% endblock %}
 
 {% block content %}
-  <div class="container pt-3">
+<div class="container pt-3">
   <h5>{{ this_page.title() }}</h5>
+  
   <table class="table table-striped table-bordered table-sm">
-    <thead>
+  <thead>
+    <tr>
+      <th scope="col">Timestamp</th>
+      <th scope="col">From</th>
+      <th scope="col">To</th>
+      <th scope="col">Route</th>
+      <th scope="col">Hops</th>
+      {# <th scope="col">Success</th> #}
+      <th scope="col">Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in traceroutes %}
       <tr>
-        <th scope="col">Timestamp</th>
-        <th scope="col">From</th>
-        <th scope="col">To</th>
-        <th scope="col">Route</th>
-        <th scope="col">Route Hops</th>
+        <td>{{ format_timestamp(item.ts_created) }}</td>
+        <td>
+          {% set fnodeid = utils.convert_node_id_from_int_to_hex(item["from_id"]) %}
+          {% if fnodeid in nodes %}
+            <a href="node_{{ fnodeid }}.html">{{ nodes[fnodeid].short_name }}</a>
+          {% else %}
+            <span>UNK</span>
+          {% endif %}
+        </td>
+        <td>
+          {% set tnodeid = utils.convert_node_id_from_int_to_hex(item["to_id"]) %}
+          {% if tnodeid in nodes %}
+            <a href="node_{{ tnodeid }}.html">{{ nodes[tnodeid].short_name }}</a>
+          {% else %}
+            <span>UNK</span>
+          {% endif %}
+        </td>
+        <td>
+          {# Forward Route #}
+          <div class="d-flex align-items-center flex-wrap mb-1">
+            <span class="text-muted me-2" style="min-width: 70px;">Outbound:</span>
+            <div class="d-flex align-items-center flex-wrap">
+              {# Source node #}
+              <div class="d-inline-flex align-items-center me-2">
+                {% if fnodeid in nodes %}
+                  <a href="node_{{ fnodeid }}.html" class="text-decoration-none fw-bold">
+                    {{ nodes[fnodeid].short_name }}
+                  </a>
+                  {% if item.route|length == 0 and item.snr_towards %}
+                    {{ snr_badge(item.snr_towards[0]) }}
+                  {% endif %}
+                {% else %}
+                  <span class="fw-bold">UNK</span>
+                {% endif %}
+              </div>
+
+              {# Forward hops #}
+              {% for hop in item.route %}
+                <span class="mx-1">⇢</span>
+                <div class="d-inline-flex align-items-center me-2">
+                  {% set hnodeid = utils.convert_node_id_from_int_to_hex(hop) %}
+                  {% set hnode = nodes[hnodeid] if hnodeid in nodes else None %}
+                  {% if hnode %}
+                    <a href="node_{{ hnodeid }}.html" class="text-decoration-none">
+                      {{ hnode.short_name }}
+                    </a>
+                  {% else %}
+                    <span>UNK</span>
+                  {% endif %}
+                  {% if item.snr_towards and loop.index0 < item.snr_towards|length %}
+                    {{ snr_badge(item.snr_towards[loop.index0]) }}
+                  {% endif %}
+                </div>
+              {% endfor %}
+              {% if item.route_back %}
+                {# Destination node for forward path #}
+                <span class="mx-1">⇢</span>
+                <div class="d-inline-flex align-items-center">
+                  {% if tnodeid in nodes %}
+                    <a href="node_{{ tnodeid }}.html" class="text-decoration-none fw-bold">
+                      {{ nodes[tnodeid].short_name }}
+                    </a>
+                  {% else %}
+                    <span class="fw-bold">UNK</span>
+                  {% endif %}
+                {% endif %}
+              </div>
+            </div>
+          </div>
+
+          {# Return Route - only show if exists #}
+          {% if item.route_back %}
+            <div class="d-flex align-items-center flex-wrap">
+              <span class="text-muted me-2" style="min-width: 70px;">Return:</span>
+              <div class="d-flex align-items-center flex-wrap">
+                {# Return source (destination node) #}
+                <div class="d-inline-flex align-items-center me-2">
+                  {% if tnodeid in nodes %}
+                    <a href="node_{{ tnodeid }}.html" class="text-decoration-none fw-bold">
+                      {{ nodes[tnodeid].short_name }}
+                    </a>
+                    {% if item.route_back|length == 0 and item.snr_back %}
+                      {{ snr_badge(item.snr_back[0]) }}
+                    {% endif %}
+                  {% else %}
+                    <span class="fw-bold">UNK</span>
+                  {% endif %}
+                </div>
+
+                {# Return hops #}
+                {% for hop in item.route_back %}
+                  <span class="mx-1">⇢</span>
+                  <div class="d-inline-flex align-items-center me-2">
+                    {% set hnodeid = utils.convert_node_id_from_int_to_hex(hop) %}
+                    {% set hnode = nodes[hnodeid] if hnodeid in nodes else None %}
+                    {% if hnode %}
+                      <a href="node_{{ hnodeid }}.html" class="text-decoration-none">
+                        {{ hnode.short_name }}
+                      </a>
+                    {% else %}
+                      <span>UNK</span>
+                    {% endif %}
+                    {% if item.snr_back and loop.index0 < item.snr_back|length %}
+                      {{ snr_badge(item.snr_back[loop.index0]) }}
+                    {% endif %}
+                  </div>
+                {% endfor %}
+
+                {# Return destination (source node) #}
+                <span class="mx-1">⇢</span>
+                <div class="d-inline-flex align-items-center">
+                  {% if fnodeid in nodes %}
+                    <a href="node_{{ fnodeid }}.html" class="text-decoration-none fw-bold">
+                      {{ nodes[fnodeid].short_name }}
+                    </a>
+                  {% else %}
+                    <span class="fw-bold">UNK</span>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          {% endif %}
+        </td>
+        <td>
+          {% if item.route_back %}
+            <div class="text-nowrap">
+              <span class="text-muted">Out:</span> {{ item.route|length }}
+              <br>
+              <span class="text-muted">Return:</span> {{ item.route_back|length }}
+            </div>
+          {% else %}
+            {{ item.route|length }}
+          {% endif %}
+        </td>
+        {# <td class="text-center">
+          {% if item.success %}
+            <i class="bi bi-check-circle-fill text-success" title="Traceroute completed successfully"></i>
+          {% endif %}
+        </td> #}
+        <td>
+          {% set from_id_hex = utils.convert_node_id_from_int_to_hex(item["from_id"]) %}
+          {% set to_id_hex = utils.convert_node_id_from_int_to_hex(item["to_id"]) %}
+          {% if from_id_hex in nodes and to_id_hex in nodes and
+                nodes[from_id_hex].position and nodes[to_id_hex].position %}
+            <a href="/traceroute_map.html?id={{ item.id }}" class="btn btn-sm btn-outline-primary" title="View traceroute map">
+              <i class="bi bi-map"></i> Map
+            </a>
+          {% endif %}
+        </td>
       </tr>
-    </thead>
-    <tbody>
-      {% for item in traceroutes %}
-        <tr>
-          <td>{{ datetime.fromtimestamp(item.ts_created).strftime("%Y-%m-%d %H:%M:%S") }}</td>
-          <td>
-            {% set fnodeid = utils.convert_node_id_from_int_to_hex(item["from_id"]) %}
-            {% set tnodeid = utils.convert_node_id_from_int_to_hex(item["to_id"]) %}
-            {% set fnode = nodes[fnodeid] %}
-            {% if fnode %}
-              <a href="node_{{ fnodeid }}.html">{{ fnode.short_name }}</a>
-            {% else %}
-              <span>UNK</span>
-            {% endif %}
-          </td>
-          <td>
-            {% set tnode = nodes[tnodeid] %}
-            {% if tnode %}
-              <a href="node_{{ tnodeid }}.html">{{ tnode.short_name }}</a>
-            {% else %}
-              <span>UNK</span>
-            {% endif %}
-          </td>
-          <td>
-            {% for hop in item.route %}
-              {% set hnodeid = utils.convert_node_id_from_int_to_hex(hop) %}
-              {% set hnode = nodes[hnodeid] %}
-              {% if hnode %}
-                <a href="node_{{ hnodeid }}.html">{{ hnode.short_name }}</a>
-              {% else %}
-                <span>UNK</span>
-              {% endif %}
-              {% if not loop.last %}
-                <span>></span>
-              {% endif %}
-            {% endfor %}
-          </td>
-          <td>{{ item.route | length }}</td>
-        </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  </div>
+    {% endfor %}
+  </tbody>
+</table>
+
+  {% if pagination.total > pagination.per_page %}
+    <nav aria-label="Traceroute pagination" class="table-responsive">
+      <ul class="pagination justify-content-center mb-1">
+        <li class="page-item {% if pagination.page == 1 %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('traceroutes', page=1) }}" title="Newest traceroutes">Current</a>
+        </li>
+        <li class="page-item {% if not pagination.has_prev %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('traceroutes', page=pagination.prev_num) }}" title="Previous page">Previous</a>
+        </li>
+
+        {% set start_page = [pagination.page - 5, 1] | max %}
+        {% set end_page = [start_page + 10, pagination.pages] | min %}
+        {% if end_page - start_page < 10 %}
+          {% set start_page = [end_page - 10, 1] | max %}
+        {% endif %}
+        
+        {% for page_num in range(start_page, end_page + 1) %}
+          <li class="page-item {% if page_num == pagination.page %}active{% endif %}">
+            <a class="page-link" href="{{ url_for('traceroutes', page=page_num) }}">{{ page_num }}</a>
+          </li>
+        {% endfor %}
+
+        <li class="page-item {% if not pagination.has_next %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('traceroutes', page=pagination.next_num) }}" title="Next page">Next</a>
+        </li>
+        <li class="page-item {% if pagination.page == pagination.pages %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('traceroutes', page=pagination.pages) }}" title="Oldest traceroutes">Oldest</a>
+        </li>
+      </ul>
+    </nav>
+
+    <div class="text-center text-muted mt-2 mb-3">
+      {% if pagination.total > 0 %}
+        Showing {{ pagination.start_item }} 
+        to {{ pagination.end_item }} 
+        of {{ pagination.total }} traceroutes
+      {% endif %}
+    </div>
+  {% endif %}
+</div>
 {% endblock %}

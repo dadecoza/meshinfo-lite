@@ -1,0 +1,978 @@
+{% extends "layout.html.j2" %}
+
+{% block title %}Traceroute Map | MeshInfo{% endblock %}
+{% block head %}
+  <script src="https://cdn.jsdelivr.net/npm/openlayers@4.6.5/dist/ol.min.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/openlayers@4.6.5/dist/ol.min.css" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="container pt-3">
+  <p>
+    <a href="traceroutes.html">Traceroutes</a> &gt; Traceroute Map
+  </p>
+  
+<div class="card mb-3">
+    <div class="card-body">
+      <h5 class="card-title">Traceroute Details</h5>
+      <p class="card-text">
+        <strong>From:</strong> 
+        {% if traceroute.from_id_hex in nodes %}
+          <a href="node_{{ traceroute.from_id_hex }}.html">{{ nodes[traceroute.from_id_hex].long_name }} ({{ nodes[traceroute.from_id_hex].short_name }})</a>
+        {% else %}
+          Unknown
+        {% endif %}
+        <br>
+        <strong>To:</strong> 
+        {% if traceroute.to_id_hex in nodes %}
+          <a href="node_{{ traceroute.to_id_hex }}.html">{{ nodes[traceroute.to_id_hex].long_name }} ({{ nodes[traceroute.to_id_hex].short_name }})</a>
+        {% else %}
+          Unknown
+        {% endif %}
+        <br>
+        <strong>Time:</strong> {{ format_timestamp(traceroute.ts_created) }}<br>
+        <strong>Forward Route:</strong>
+        <div class="d-flex align-items-center flex-wrap mt-2">
+          {# Source node #}
+          <div class="d-inline-flex align-items-center me-2 mb-1">
+            <div class="position-relative">
+              {% if traceroute.from_id_hex in nodes %}
+                <a href="node_{{ traceroute.from_id_hex }}.html" class="text-decoration-none fw-bold">
+                  {{ nodes[traceroute.from_id_hex].short_name }}
+                </a>
+                {% if traceroute.route|length == 0 and traceroute.snr_towards %}
+                  {{ snr_badge(traceroute.snr_towards[0]) }}
+                {% endif %}
+              {% else %}
+                <span class="fw-bold">UNK</span>
+              {% endif %}
+            </div>
+            <span class="mx-2">⇢</span>
+          </div>
+
+          {# Forward hop nodes - only if there are hops #}
+          {% if traceroute.route|length > 0 %}
+            {% for hop in traceroute.route %}
+              <div class="d-inline-flex align-items-center me-2 mb-1">
+                {% set hnodeid = utils.convert_node_id_from_int_to_hex(hop) %}
+                {% set hnode = nodes[hnodeid] if hnodeid in nodes else None %}
+                <div class="position-relative">
+                  {% if hnode %}
+                    <a href="node_{{ hnodeid }}.html" class="text-decoration-none">
+                      {{ hnode.short_name }}
+                    </a>
+                  {% else %}
+                    <span>UNK</span>
+                  {% endif %}
+                  {% if traceroute.snr_towards and loop.index0 < traceroute.snr_towards|length %}
+                    {{ snr_badge(traceroute.snr_towards[loop.index0]) }}
+                  {% endif %}
+                </div>
+                {% if not loop.last %}
+                  <span class="mx-2">⇢</span>
+                {% endif %}
+              </div>
+            {% endfor %}
+          {% endif %}
+
+          {# Destination node for forward path #}
+          <div class="d-inline-flex align-items-center me-2 mb-1">
+            <div class="position-relative">
+              {% if traceroute.to_id_hex in nodes %}
+                <a href="node_{{ traceroute.to_id_hex }}.html" class="text-decoration-none fw-bold">
+                  {{ nodes[traceroute.to_id_hex].short_name }}
+                </a>
+              {% else %}
+                <span class="fw-bold">UNK</span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        {% if traceroute.route_back %}
+          <strong>Return Route:</strong>
+          <div class="d-flex align-items-center flex-wrap mt-2">
+            {# Source node for return path #}
+            <div class="d-inline-flex align-items-center me-2 mb-1">
+              <div class="position-relative">
+                {% if traceroute.to_id_hex in nodes %}
+                  <a href="node_{{ traceroute.to_id_hex }}.html" class="text-decoration-none fw-bold">
+                    {{ nodes[traceroute.to_id_hex].short_name }}
+                  </a>
+                  {% if traceroute.route_back|length == 0 and traceroute.snr_back %}
+                    {{ snr_badge(traceroute.snr_back[0]) }}
+                  {% endif %}
+                {% else %}
+                  <span class="fw-bold">UNK</span>
+                {% endif %}
+              </div>
+              {% if traceroute.route_back|length > 0 %}
+                <span class="mx-2">⇢</span>
+              {% endif %}
+            </div>
+
+            {# Return hop nodes #}
+            {% if traceroute.route_back|length > 0 %}
+              {% for hop in traceroute.route_back %}
+                <div class="d-inline-flex align-items-center me-2 mb-1">
+                  {% set hnodeid = utils.convert_node_id_from_int_to_hex(hop) %}
+                  {% set hnode = nodes[hnodeid] if hnodeid in nodes else None %}
+                  <div class="position-relative">
+                    {% if hnode %}
+                      <a href="node_{{ hnodeid }}.html" class="text-decoration-none">
+                        {{ hnode.short_name }}
+                      </a>
+                    {% else %}
+                      <span>UNK</span>
+                    {% endif %}
+                    {% if traceroute.snr_back and loop.index0 < traceroute.snr_back|length %}
+                      {{ snr_badge(traceroute.snr_back[loop.index0]) }}
+                    {% endif %}
+                  </div>
+                  {% if not loop.last %}
+                    <span class="mx-2">⇢</span>
+                  {% endif %}
+                </div>
+              {% endfor %}
+            {% endif %}
+
+            {# Final destination (original source) for return path #}
+            <div class="d-inline-flex align-items-center me-2 mb-1">
+              <div class="position-relative">
+                {% if traceroute.from_id_hex in nodes %}
+                  <span class="mx-2">⇢</span>
+                  <a href="node_{{ traceroute.from_id_hex }}.html" class="text-decoration-none fw-bold">
+                    {{ nodes[traceroute.from_id_hex].short_name }}
+                  </a>
+                {% else %}
+                  <span class="fw-bold">UNK</span>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        {% endif %}
+
+        <strong>Total Hops:</strong> {{ traceroute.route|length }} forward{% if traceroute.route_back %}, {{ traceroute.route_back|length }} return{% endif %}<br>
+      </p>
+    </div>
+  </div>
+
+  <div id="map" style="height: 70vh; width: 100%;"></div>
+  
+<div id="legend" class="p-2" style="background-color: #ffffff;">
+    <div>LEGEND</div>
+    <div>
+      <div style="background-color: #FF4444; height: 8px; width: 8px; border-radius: 4px; display: inline-block;"></div> Source Node
+    </div>
+    <div>
+      <div style="background-color: #4444FF; height: 8px; width: 8px; border-radius: 4px; display: inline-block;"></div> Destination Node
+    </div>
+    <div>
+      <div style="background-color: #44AA44; height: 8px; width: 8px; border-radius: 4px; display: inline-block;"></div> Forward Hop
+    </div>
+    <div>
+      <div style="background-color: #AA44AA; height: 8px; width: 8px; border-radius: 4px; display: inline-block;"></div> Return Hop
+    </div>
+    <div>
+      <div style="background-color: #FFA500; height: 8px; width: 8px; border-radius: 4px; display: inline-block;"></div> Unknown Location
+    </div>
+    <div>
+      <div style="border-top: 3px solid #44AA44; width: 20px; display: inline-block;"></div> Forward Path
+    </div>
+    <div>
+      <div style="border-top: 3px dashed #44AA44; width: 20px; display: inline-block;"></div> Final Forward Hop (no return, may not represent arrival at target)
+    </div>
+    <div>
+      <div style="border-top: 3px solid #AA44AA; width: 20px; display: inline-block;"></div> Return Path
+    </div>
+    <div>
+      <div style="border-top: 3px dashed #AA44AA; width: 20px; display: inline-block;"></div> Final Return Hop (may not represent completed traceroute)
+    </div>
+</div>
+
+<script type="module">
+  const map = new ol.Map({
+    layers: [
+      new ol.layer.Tile({
+        source: new ol.source.OSM(),
+      }),
+    ],
+    target: 'map',
+    view: new ol.View({
+      center: ol.proj.fromLonLat([0, 0]),
+      zoom: 2,
+    }),
+  });
+
+  var forwardLineStyle = new ol.style.Style({
+    stroke: new ol.style.Stroke({
+      color: '#44AA44',
+      width: 3
+    })
+  });
+
+  var forwardDashedLineStyle = new ol.style.Style({
+    stroke: new ol.style.Stroke({
+      color: '#44AA44',
+      width: 3,
+      lineDash: [5, 5]
+    })
+  });
+
+  var returnLineStyle = new ol.style.Style({
+    stroke: new ol.style.Stroke({
+      color: '#AA44AA',  // Purple for return path
+      width: 3
+    })
+  });
+
+  var returnDashedLineStyle = new ol.style.Style({
+    stroke: new ol.style.Stroke({
+      color: '#AA44AA',  // Purple for return path
+      width: 3,
+      lineDash: [5, 5]
+    })
+  });
+
+  var sourceStyle = new ol.style.Style({
+    image: new ol.style.Circle({
+      radius: 8,
+      fill: new ol.style.Fill({
+        color: '#FF4444'
+      }),
+      stroke: new ol.style.Stroke({
+        color: 'white',
+        width: 2
+      })
+    })
+  });
+
+  var destStyle = new ol.style.Style({
+    image: new ol.style.Circle({
+      radius: 8,
+      fill: new ol.style.Fill({
+        color: '#4444FF'
+      }),
+      stroke: new ol.style.Stroke({
+        color: 'white',
+        width: 2
+      })
+    })
+  });
+  
+  function createHopStyle(hopNumber, isReturn) {
+    return new ol.style.Style({
+      image: new ol.style.Circle({
+        radius: 8,
+        fill: new ol.style.Fill({
+          color: isReturn ? '#AA44AA' : '#44AA44'  // Purple for return, green for forward
+        }),
+        stroke: new ol.style.Stroke({
+          color: 'white',
+          width: 2
+        })
+      }),
+      text: new ol.style.Text({
+        text: hopNumber.toString(),
+        fill: new ol.style.Fill({
+          color: '#FFFFFF'
+        }),
+        font: 'bold 12px Arial'
+      })
+    });
+  }
+
+  var unknownStyle = new ol.style.Style({
+    image: new ol.style.Circle({
+      radius: 8,
+      fill: new ol.style.Fill({
+        color: '#FFA500' // Orange color
+      }),
+      stroke: new ol.style.Stroke({
+        color: 'white',
+        width: 2
+      })
+    }),
+    text: new ol.style.Text({
+      text: '?',
+      fill: new ol.style.Fill({
+        color: '#FFFFFF'
+      }),
+      font: 'bold 12px Arial'
+    })
+  });
+
+  // Add function to calculate distance between nodes
+  function calculateDistance(lat1, lon1, lat2, lon2) {
+    return Math.round(Math.sqrt(
+      Math.pow(lat1 - lat2, 2) +
+      Math.pow(lon1 - lon2, 2)
+    ) * 111.32 * 100) / 100;  // Convert to km and round to 2 decimal places
+  }
+
+  const features = [];
+  const lines = [];
+  const labels = [];
+  
+  // Add source node (from_id)
+  {% set from_id = traceroute.from_id_hex %}
+    {% if from_id in nodes and nodes[from_id].position and nodes[from_id].position.longitude_i is not none and nodes[from_id].position.latitude_i is not none %}    var source = new ol.Feature({
+        geometry: new ol.geom.Point(ol.proj.fromLonLat([
+            {{ nodes[from_id].position.longitude_i / 10000000 }},
+            {{ nodes[from_id].position.latitude_i / 10000000 }}
+        ])),
+        node: {
+            id: '{{ from_id }}',
+            name: '{{ nodes[from_id].short_name }}',
+            longName: '{{ nodes[from_id].long_name }}',
+            type: 'source',
+            lat: {{ nodes[from_id].position.latitude_i / 10000000 }},
+            lon: {{ nodes[from_id].position.longitude_i / 10000000 }}
+        }
+    });
+    source.setStyle(sourceStyle);
+    features.push(source);
+    
+    // Initialize points tracking
+    var allpoints = [];
+    var lastKnownPoint = null;
+    var unknownSequence = [];
+
+    // Start with source node
+    allpoints.push([
+        {{ nodes[from_id].position.longitude_i / 10000000 }},
+        {{ nodes[from_id].position.latitude_i / 10000000 }}
+    ]);
+    lastKnownPoint = [
+        {{ nodes[from_id].position.longitude_i / 10000000 }},
+        {{ nodes[from_id].position.latitude_i / 10000000 }}
+    ];
+
+    // Add all forward hops in the route
+        {% for hop in traceroute.route %}
+        {% set hop_id = utils.convert_node_id_from_int_to_hex(hop) %}
+          {% if hop_id in nodes and nodes[hop_id].position and nodes[hop_id].position.longitude_i is not none and nodes[hop_id].position.latitude_i is not none %}            // If we had unknown nodes before this known node, place them now
+            if (unknownSequence.length > 0) {
+                var nextKnownPoint = [
+                    {{ nodes[hop_id].position.longitude_i / 10000000 }},
+                    {{ nodes[hop_id].position.latitude_i / 10000000 }}
+                ];
+                
+                // Calculate positions for all unknown nodes in sequence
+                for (var i = 0; i < unknownSequence.length; i++) {
+                    var fraction = (i + 1) / (unknownSequence.length + 1);
+                    var midPoint = [
+                        lastKnownPoint[0] + (nextKnownPoint[0] - lastKnownPoint[0]) * fraction,
+                        lastKnownPoint[1] + (nextKnownPoint[1] - lastKnownPoint[1]) * fraction
+                    ];
+                    
+                    // Create unknown node feature
+                    var unknownNode = new ol.Feature({
+                        geometry: new ol.geom.Point(ol.proj.fromLonLat(midPoint)),
+                        node: {
+                            ...unknownSequence[i],
+                            direction: 'forward'
+                        }
+                    });
+                    unknownNode.setStyle(unknownStyle);
+                    features.push(unknownNode);
+                    allpoints.push(midPoint);
+                }
+                
+                // Clear the sequence
+                unknownSequence = [];
+            }
+
+        // Add the known forward hop node
+        var hopNode = new ol.Feature({
+            geometry: new ol.geom.Point(ol.proj.fromLonLat([
+                {{ nodes[hop_id].position.longitude_i / 10000000 }},
+                {{ nodes[hop_id].position.latitude_i / 10000000 }}
+            ])),
+            node: {
+                id: '{{ hop_id }}',
+                name: '{{ nodes[hop_id].short_name }}',
+                longName: '{{ nodes[hop_id].long_name }}',
+                snr: {{ traceroute.snr_towards[loop.index0] if traceroute.snr_towards and loop.index0 < traceroute.snr_towards|length else 'null' }},
+                type: 'hop',
+                direction: 'forward',
+                hopNumber: {{ loop.index }},
+                lat: {{ nodes[hop_id].position.latitude_i / 10000000 }},
+                lon: {{ nodes[hop_id].position.longitude_i / 10000000 }}
+            }
+        });
+        hopNode.setStyle(createHopStyle({{ loop.index }}, false));  // false for forward hop
+        features.push(hopNode);
+
+        // Add the point to allpoints and update lastKnownPoint
+        var currentPoint = [
+            {{ nodes[hop_id].position.longitude_i / 10000000 }},
+            {{ nodes[hop_id].position.latitude_i / 10000000 }}
+        ];
+        allpoints.push(currentPoint);
+        lastKnownPoint = currentPoint;
+    {% else %}
+        // Add to sequence of unknown nodes
+        unknownSequence.push({
+            id: '{{ hop_id }}',
+            name: '{{ nodes[hop_id].short_name if hop_id in nodes else "Unknown" }}',
+            longName: '{{ nodes[hop_id].long_name if hop_id in nodes else "Unknown Node" }}',
+            type: 'unknown',
+            direction: 'forward',
+            hopNumber: {{ loop.index }},
+            snr: {{ traceroute.snr_towards[loop.index0] if traceroute.snr_towards and loop.index0 < traceroute.snr_towards|length else 'null' }}
+        });
+    {% endif %}
+    {% endfor %}
+    
+    // Add destination node
+    {% set to_id = traceroute.to_id_hex %}
+    {% if to_id in nodes and nodes[to_id].position and nodes[to_id].position.longitude_i is not none and nodes[to_id].position.latitude_i is not none %}
+        // Handle any remaining unknown nodes before destination
+        if (unknownSequence.length > 0) {
+            var nextKnownPoint = [
+                {{ nodes[to_id].position.longitude_i / 10000000 }},
+                {{ nodes[to_id].position.latitude_i / 10000000 }}
+            ];
+            
+            // Calculate positions for all unknown nodes in sequence
+            for (var i = 0; i < unknownSequence.length; i++) {
+                var fraction = (i + 1) / (unknownSequence.length + 1);
+                var midPoint = [
+                    lastKnownPoint[0] + (nextKnownPoint[0] - lastKnownPoint[0]) * fraction,
+                    lastKnownPoint[1] + (nextKnownPoint[1] - lastKnownPoint[1]) * fraction
+                ];
+                
+                // Create unknown node feature
+                var unknownNode = new ol.Feature({
+                    geometry: new ol.geom.Point(ol.proj.fromLonLat(midPoint)),
+                    node: unknownSequence[i]
+                });
+                unknownNode.setStyle(unknownStyle);
+                features.push(unknownNode);
+                allpoints.push(midPoint);
+            }
+        }
+
+        // Add destination node
+        var dest = new ol.Feature({
+            geometry: new ol.geom.Point(ol.proj.fromLonLat([
+                {{ nodes[to_id].position.longitude_i / 10000000 }},
+                {{ nodes[to_id].position.latitude_i / 10000000 }}
+            ])),
+            node: {
+                id: '{{ to_id }}',
+                name: '{{ nodes[to_id].short_name }}',
+                longName: '{{ nodes[to_id].long_name }}',
+                type: 'destination',
+                lat: {{ nodes[to_id].position.latitude_i / 10000000 }},
+                lon: {{ nodes[to_id].position.longitude_i / 10000000 }}
+            }
+        });
+        dest.setStyle(destStyle);
+        features.push(dest);
+        allpoints.push([
+            {{ nodes[to_id].position.longitude_i / 10000000 }},
+            {{ nodes[to_id].position.latitude_i / 10000000 }}
+        ]);
+
+        // Reset for return path
+        lastKnownPoint = [
+            {{ nodes[to_id].position.longitude_i / 10000000 }},
+            {{ nodes[to_id].position.latitude_i / 10000000 }}
+        ];
+        unknownSequence = [];
+    {% else %}
+        // Add destination to unknown sequence if it exists in nodes but has no position
+        {% if to_id in nodes %}
+        unknownSequence.push({
+            id: '{{ to_id }}',
+            name: '{{ nodes[to_id].short_name }}',
+            longName: '{{ nodes[to_id].long_name }}',
+            type: 'unknown',
+            direction: 'forward',
+            hopNumber: {{ traceroute.route|length + 1 }}
+        });
+        {% endif %}
+    {% endif %}
+
+    // Add return hops
+    {% if traceroute.route_back %}
+        {% for hop in traceroute.route_back %}
+            {% set hop_id = utils.convert_node_id_from_int_to_hex(hop) %}
+              {% if hop_id in nodes and nodes[hop_id].position and nodes[hop_id].position.longitude_i is not none and nodes[hop_id].position.latitude_i is not none %}
+                // Handle any unknown nodes in sequence
+                if (unknownSequence.length > 0) {
+                    var nextKnownPoint = [
+                        {{ nodes[hop_id].position.longitude_i / 10000000 }},
+                        {{ nodes[hop_id].position.latitude_i / 10000000 }}
+                    ];
+                    
+                    // Place unknown nodes
+                    for (var i = 0; i < unknownSequence.length; i++) {
+                        var fraction = (i + 1) / (unknownSequence.length + 1);
+                        var midPoint = [
+                            lastKnownPoint[0] + (nextKnownPoint[0] - lastKnownPoint[0]) * fraction,
+                            lastKnownPoint[1] + (nextKnownPoint[1] - lastKnownPoint[1]) * fraction
+                        ];
+                        
+                        var unknownNode = new ol.Feature({
+                            geometry: new ol.geom.Point(ol.proj.fromLonLat(midPoint)),
+                            node: {
+                                ...unknownSequence[i],
+                                direction: 'return'
+                            }
+                        });
+                        unknownNode.setStyle(unknownStyle);
+                        features.push(unknownNode);
+                        allpoints.push(midPoint);
+                    }
+                    unknownSequence = [];
+                }
+
+                // Add return hop node
+                var returnHopNode = new ol.Feature({
+                    geometry: new ol.geom.Point(ol.proj.fromLonLat([
+                        {{ nodes[hop_id].position.longitude_i / 10000000 }},
+                        {{ nodes[hop_id].position.latitude_i / 10000000 }}
+                    ])),
+                    node: {
+                        id: '{{ hop_id }}',
+                        name: '{{ nodes[hop_id].short_name }}',
+                        longName: '{{ nodes[hop_id].long_name }}',
+                        snr: {{ traceroute.snr_back[loop.index0] if traceroute.snr_back and loop.index0 < traceroute.snr_back|length else 'null' }},
+                        type: 'hop',
+                        direction: 'return',
+                        hopNumber: {{ loop.index }},
+                        lat: {{ nodes[hop_id].position.latitude_i / 10000000 }},
+                        lon: {{ nodes[hop_id].position.longitude_i / 10000000 }}
+                    }
+                });
+                returnHopNode.setStyle(createHopStyle({{ loop.index }}, true));  // true for return hop
+                features.push(returnHopNode);
+
+                var currentPoint = [
+                    {{ nodes[hop_id].position.longitude_i / 10000000 }},
+                    {{ nodes[hop_id].position.latitude_i / 10000000 }}
+                ];
+                allpoints.push(currentPoint);
+                lastKnownPoint = currentPoint;
+            {% else %}
+                // Add unknown return hop to sequence
+                unknownSequence.push({
+                    id: '{{ hop_id }}',
+                    name: '{{ nodes[hop_id].short_name if hop_id in nodes else "Unknown" }}',
+                    longName: '{{ nodes[hop_id].long_name if hop_id in nodes else "Unknown Node" }}',
+                    type: 'unknown',
+                    direction: 'return',
+                    hopNumber: {{ loop.index }},
+                    snr: {{ traceroute.snr_back[loop.index0] if traceroute.snr_back and loop.index0 < traceroute.snr_back|length else 'null' }}
+                });
+            {% endif %}
+        {% endfor %}
+
+        // Handle any remaining unknown nodes before final return to source
+        if (unknownSequence.length > 0) {
+            var sourcePoint = [
+                {{ nodes[from_id].position.longitude_i / 10000000 }},
+                {{ nodes[from_id].position.latitude_i / 10000000 }}
+            ];
+            
+            // Place remaining unknown nodes between last known point and source
+            for (var i = 0; i < unknownSequence.length; i++) {
+                var fraction = (i + 1) / (unknownSequence.length + 1);
+                var midPoint = [
+                    lastKnownPoint[0] + (sourcePoint[0] - lastKnownPoint[0]) * fraction,
+                    lastKnownPoint[1] + (sourcePoint[1] - lastKnownPoint[1]) * fraction
+                ];
+                
+                var unknownNode = new ol.Feature({
+                    geometry: new ol.geom.Point(ol.proj.fromLonLat(midPoint)),
+                    node: unknownSequence[i]  // Include all node properties directly
+                });
+                unknownNode.setStyle(unknownStyle);
+                features.push(unknownNode);
+                allpoints.push(midPoint);
+            }
+            unknownSequence = [];
+        }
+
+        // After all return hops and unknown nodes, add the source point to complete the return path
+        allpoints.push([
+            {{ nodes[from_id].position.longitude_i / 10000000 }},
+            {{ nodes[from_id].position.latitude_i / 10000000 }}
+        ]);
+    {% endif %}
+  {% endif %}
+    
+// Create lines between nodes
+for (var i = 0; i < allpoints.length - 1; i++) {
+    var fromPoint = allpoints[i];
+    var toPoint = allpoints[i+1];
+    var points = [fromPoint, toPoint];
+    
+    // Calculate distance for this segment
+    var distance = calculateDistance(
+        fromPoint[1], fromPoint[0], 
+        toPoint[1], toPoint[0]
+    );
+    
+    // Get SNR for this hop
+    var snr = null;
+    var isForwardPath = i < {{ traceroute.route|length + 1 }};  // +1 for source-to-first or direct connection
+    var isDirectConnection = {{ 'true' if traceroute.route|length == 0 else 'false' }};  {# Fix: Convert Python bool to JavaScript bool #}
+
+    {% if traceroute.route|length == 0 %}
+        {% if traceroute.snr_towards %}
+            if (i == 0) {  // Direct forward connection
+                snr = {{ traceroute.snr_towards[0] }};
+            }
+        {% endif %}
+        {% if traceroute.snr_back %}
+            if (i == 1) {  // Direct return connection
+                snr = {{ traceroute.snr_back[0] }};
+            }
+        {% endif %}
+    {% else %}
+        {% if traceroute.snr_towards %}
+            {% for snr_value in traceroute.snr_towards %}
+                if (i == {{ loop.index0 }}) {
+                    snr = {{ snr_value }};
+                }
+            {% endfor %}
+        {% endif %}
+        {% if traceroute.snr_back %}
+            {% for snr_value in traceroute.snr_back %}
+                if (i == {{ traceroute.route|length + loop.index0 }}) {
+                    snr = {{ snr_value }};
+                }
+            {% endfor %}
+        {% endif %}
+    {% endif %}
+    
+    // Transform coordinates from EPSG:4326 to EPSG:3857
+    for (var j = 0; j < points.length; j++) {
+        points[j] = ol.proj.transform(points[j], 'EPSG:4326', 'EPSG:3857');
+    }
+    
+    // Create line feature
+    var line = new ol.Feature({
+        geometry: new ol.geom.LineString(points)
+    });
+    
+    // Style the line based on path type
+    if (isDirectConnection) {
+        if (isForwardPath) {
+            // For direct connections, use solid green for forward
+            line.setStyle(forwardLineStyle);
+        } else {
+            // For return on direct connections, use solid purple unless it's the final segment
+            var isLastSegment = i === allpoints.length - 2;
+            if (isLastSegment) {
+                line.setStyle(returnDashedLineStyle);  // Final return segment always dashed
+            } else {
+                line.setStyle(returnLineStyle);
+            }
+        }
+    } else {
+        // For multi-hop routes
+        if (isForwardPath) {
+            // Forward route segments
+            var isLastForwardSegment = i === {{ traceroute.route|length }}; // Last hop to destination
+            
+            // Use dashed green only if this is the last forward segment AND there's no return route
+            if (isLastForwardSegment && !{{ 'true' if traceroute.route_back else 'false' }}) {
+                line.setStyle(forwardDashedLineStyle);
+            } else {
+                line.setStyle(forwardLineStyle);  // All other forward segments use solid green
+            }
+        } else {
+            // Return route segments
+            var isLastReturnSegment = i === allpoints.length - 2;
+            
+            if (isLastReturnSegment) {
+                line.setStyle(returnDashedLineStyle);  // Last return segment always dashed
+            } else {
+                line.setStyle(returnLineStyle);  // All other return segments solid
+            }
+        }
+    }
+    
+    lines.push(line);
+    
+    // Add label at the middle of the line
+    var midPoint = [
+        (points[0][0] + points[1][0]) / 2,
+        (points[0][1] + points[1][1]) / 2
+    ];
+    
+    var label = new ol.Feature({
+        geometry: new ol.geom.Point(midPoint)
+    });
+    
+    var labelText = '';
+    // Only show distance and profiler if both points have valid coordinates
+    var fromLat = allpoints[i][1];
+    var fromLon = allpoints[i][0];
+    var toLat = allpoints[i+1][1];
+    var toLon = allpoints[i+1][0];
+    
+    // Check if either endpoint is an unknown node
+    var hasUnknownEndpoint = false;
+    var fromFeature = features.find(f => {
+        var node = f.get('node');
+        if (!node) return false;
+        return node.lon === fromLon && node.lat === fromLat;
+    });
+    var toFeature = features.find(f => {
+        var node = f.get('node');
+        if (!node) return false;
+        return node.lon === toLon && node.lat === toLat;
+    });
+    
+    hasUnknownEndpoint = (fromFeature && fromFeature.get('node').type === 'unknown') || 
+                        (toFeature && toFeature.get('node').type === 'unknown');
+    
+    if (!isNaN(fromLat) && !isNaN(fromLon) && !isNaN(toLat) && !isNaN(toLon) && !hasUnknownEndpoint) {
+        var distance = calculateDistance(
+            fromLat, fromLon, 
+            toLat, toLon
+        );
+        labelText = distance + ' km\n🏔️';
+        
+        // Store the profile URL in the feature's properties
+        label.set('profileUrl', 
+        `https://heywhatsthat.com/profiler.html?show_grade=0&show_rise=0&include_grade=1&decimal_places=0&elev_source=0&ll1=${fromLat},${fromLon}&ll2=${toLat},${toLon}`
+        );
+    }
+
+    if (snr !== null) {
+        labelText += (labelText ? '\n' : '') + 'SNR: ' + snr + ' dB';
+    }
+    if (!isDirectConnection && i > 0 && i < allpoints.length - 2) {
+        labelText += (labelText ? '\n' : '') + 'Hop #' + i;
+    }
+
+    // Only create label if there's text to show
+    if (labelText) {
+        label.setStyle(new ol.style.Style({
+            text: new ol.style.Text({
+                text: labelText,
+                font: '12px Arial',
+                fill: new ol.style.Fill({ color: '#000000' }),
+                stroke: new ol.style.Stroke({
+                    color: '#ffffff',
+                    width: 3
+                }),
+                padding: [3, 5, 3, 5],
+                offsetY: -20,
+                backgroundFill: new ol.style.Fill({
+                    color: 'rgba(255, 255, 255, 0.85)'
+                }),
+                backgroundStroke: new ol.style.Stroke({
+                    color: 'rgba(0, 0, 0, 0.4)',
+                    width: 1,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                }),
+                placement: 'point',
+                overflow: true
+            })
+        }));
+        
+        labels.push(label);
+    }
+}
+
+
+  // Add features to map
+  const vectorLayer = new ol.layer.Vector({
+    source: new ol.source.Vector({
+      features: features.concat(lines).concat(labels)
+    })
+  });
+  map.addLayer(vectorLayer);
+  
+  // Fit map to features with minimum zoom
+  if (features.length > 0) {
+    var extent = vectorLayer.getSource().getExtent();
+    
+    // Get the current view
+    var view = map.getView();
+    
+    // Fit to extent with padding
+    view.fit(extent, {
+        padding: [100, 100, 100, 100],  // Increased padding
+        minResolution: 0.1,  // Ensures we don't zoom in too far
+        maxZoom: 19,  // Allow higher zoom for close nodes
+        duration: 500  // Smooth animation
+    });
+
+    // If nodes are very close, ensure minimum zoom level
+    var resolution = view.getResolution();
+    if (resolution < 0.1) {  // If zoomed in too far
+        view.setResolution(0.1);  // Set minimum resolution
+        view.setCenter(ol.extent.getCenter(extent));  // Center on the features
+    }
+  }
+  
+  // Add popup for node info
+  var container = document.createElement('div');
+  container.className = 'ol-popup';
+  var content = document.createElement('div');
+  container.appendChild(content);
+  
+  var overlay = new ol.Overlay({
+    element: container,
+    autoPan: true,
+    autoPanAnimation: {
+      duration: 250
+    }
+  });
+  map.addOverlay(overlay);
+  
+        map.on('click', function(evt) {
+    var feature = map.forEachFeatureAtPixel(evt.pixel, function(feature) {
+        return feature;
+    });
+    
+    if (feature) {
+        if (feature.get('node')) {
+            var node = feature.get('node');
+            var coordinates = feature.getGeometry().getCoordinates();
+            
+            var html = '<div class="p-2">';
+            
+            if (node.type === 'unknown') {
+                // Add node name and link with full name (if known)
+                if (node.name !== 'Unknown') {
+                    html += `<h6><a href="node_${node.id}.html">${node.longName} (${node.name})</a></h6>`;
+                } else {
+                    html += '<h6>Unknown Node</h6>';
+                }
+                
+                // Add badge and metrics consistent with other nodes
+                html += `<span class="badge" style="background-color: #FFA500">Hop #${node.hopNumber}</span><br>`;
+                if (node.snr !== null) {
+                    html += `<strong>SNR:</strong> ${node.snr} dB<br>`;
+                }
+                html += '<p class="text-muted small">This node\'s location is not available in the database. It is shown at an estimated position between known nodes.</p>';
+            } else if (node.type === 'source') {
+                // Add node name and link with full name
+                html += `<h6><a href="node_${node.id}.html">${node.longName} (${node.name})</a></h6>`;
+                html += '<span class="badge bg-danger">Source</span><br>';
+            } else if (node.type === 'destination') {
+                html += `<h6><a href="node_${node.id}.html">${node.longName} (${node.name})</a></h6>`;
+                html += '<span class="badge bg-primary">Destination</span><br>';
+            } else if (node.type === 'hop') {
+                html += `<h6><a href="node_${node.id}.html">${node.longName} (${node.name})</a></h6>`;
+                var isReturnHop = node.direction === 'return';
+                html += `<span class="badge ${isReturnHop ? 'bg-purple' : 'bg-success'}">${isReturnHop ? 'Return' : 'Forward'} Hop #${node.hopNumber}</span><br>`;
+                if (node.snr !== null) {
+                    html += `<strong>SNR:</strong> ${node.snr} dB<br>`;
+                }
+            }
+            
+            // Calculate distance from source
+            if (node.type !== 'source') {
+                var sourceFeature = features[0];
+                if (sourceFeature) {
+                    var sourceNode = sourceFeature.get('node');
+                    var distance = calculateDistance(
+                        sourceNode.lat, sourceNode.lon,
+                        node.lat, node.lon
+                    );
+                    html += `<strong>Distance from Source:</strong> ${isNaN(distance) ? '?' : distance} km<br>`;
+                }
+            }
+            
+            // Calculate distance to destination for source and hops
+            if (node.type !== 'destination') {
+                var destFeature = features.find(f => f.get('node') && f.get('node').type === 'destination');
+                if (destFeature) {
+                    var destNode = destFeature.get('node');
+                    var distance = calculateDistance(
+                        node.lat, node.lon,
+                        destNode.lat, destNode.lon
+                    );
+                    html += `<strong>Distance to Destination:</strong> ${isNaN(distance) ? '?' : distance} km<br>`;
+                }
+            }
+            
+            html += '</div>';
+            content.innerHTML = html;
+            overlay.setPosition(coordinates);
+        } else {
+            // Check if the feature has a profile URL (it's a label)
+            var profileUrl = feature.get('profileUrl');
+            if (profileUrl) {
+                window.open(profileUrl, '_blank');
+            }
+            overlay.setPosition(undefined);
+        }
+    } else {
+        overlay.setPosition(undefined);
+    }
+  });
+  
+  // Change cursor over features
+  map.on('pointermove', function(e) {
+    if (e.dragging) return;
+    
+    var pixel = map.getEventPixel(e.originalEvent);
+    var hit = map.hasFeatureAtPixel(pixel);
+    
+    map.getTargetElement().style.cursor = hit ? 'pointer' : '';
+  });
+</script>
+
+<style>
+    #map {
+    height: 70vh;
+    width: 100%;
+    margin-bottom: 60px;  // Add margin to prevent legend overlap
+    }
+    #legend {
+    position: relative;  // Change from absolute to relative
+    background-color: #ffffff;
+    padding: 8px;
+    border-radius: 4px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+    margin-bottom: 20px;  // Add some margin at the bottom
+    }
+    .ol-popup {
+    position: absolute;
+    background-color: white;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+    padding: 0;
+    border-radius: 10px;
+    border: 1px solid #cccccc;
+    bottom: 12px;
+    left: -50px;
+    min-width: 200px;
+    max-width: 300px;
+    }
+
+    // Add badge styling if not already present
+    .badge {
+    display: inline-block;
+    padding: 0.25em 0.4em;
+    font-size: 75%;
+    font-weight: 700;
+    line-height: 1;
+    text-align: center;
+    white-space: nowrap;
+    vertical-align: baseline;
+    border-radius: 0.25rem;
+    margin-bottom: 0.5rem;
+    }
+    .bg-danger {
+    background-color: #dc3545;
+    color: white;
+    }
+    .bg-primary {
+    background-color: #0d6efd;
+    color: white;
+    }
+</style>
+{% endblock %}

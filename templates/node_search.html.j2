@@ -1,0 +1,39 @@
+<div class="row mb-3 align-items-center">
+  <div class="col-md-5">
+    <input type="text" id="nodeFilter" class="form-control" placeholder="Filter nodes..." aria-label="Filter nodes">
+  </div>
+  <div class="col-md-4 text-center">
+    <span><b>{{ nodes.values() | selectattr('active') | list | length }}</b> active nodes out of <b>{{ nodes|count }}</b> total</span>
+  </div>
+  <div class="col-md-3 text-end">
+    <div class="btn-group" role="group" aria-label="Node visibility toggle">
+      <a href="nodes.html" class="btn btn-{{ 'primary' if not show_inactive else 'outline-primary' }}">Active Nodes</a>
+      <a href="allnodes.html" class="btn btn-{{ 'primary' if show_inactive else 'outline-primary' }}">All Nodes</a>
+    </div>
+  </div>
+</div>
+
+<script>
+document.getElementById('nodeFilter').addEventListener('input', function(e) {
+    const filter = e.target.value.toLowerCase();
+    const table = document.querySelector('.table');
+    const rows = table.getElementsByTagName('tr');
+
+    for (let i = 2; i < rows.length; i++) { // Start at 2 to skip header rows
+        const row = rows[i];
+        const cells = row.getElementsByTagName('td');
+        let shouldShow = false;
+
+        // Check ID, short name, long name, and owner
+        const textToSearch = [
+            cells[1].textContent, // ID
+            cells[2].textContent, // Short name
+            cells[3].textContent, // Long name
+            cells[cells.length - 1].textContent // Owner
+        ].join(' ').toLowerCase();
+
+        shouldShow = textToSearch.includes(filter);
+        row.style.display = shouldShow ? '' : 'none';
+    }
+});
+</script>

@@ -18,6 +18,7 @@ COPY requirements.txt banner run.sh ./
 COPY *.py ./
 COPY www  ./www
 COPY templates ./templates
+COPY migrations ./migrations
 
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt

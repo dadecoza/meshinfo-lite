@@ -60,15 +60,28 @@ class MeshData:
         }
 
     def connect_db(self):
-        self.db = mysql.connector.connect(
-            host=self.config["database"]["host"],
-            user=self.config["database"]["username"],
-            password=self.config["database"]["password"],
-            database=self.config["database"]["database"],
-            charset="utf8mb4"
-        )
-        cur = self.db.cursor()
-        cur.execute("SET NAMES utf8mb4;")
+        max_retries = 5
+        retry_delay = 10  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                self.db = mysql.connector.connect(
+                    host=self.config["database"]["host"],
+                    user=self.config["database"]["username"],
+                    password=self.config["database"]["password"],
+                    database=self.config["database"]["database"],
+                    charset="utf8mb4"
+                )
+                cur = self.db.cursor()
+                cur.execute("SET NAMES utf8mb4;")
+                cur.close()
+                return
+            except mysql.connector.Error as err:
+                if attempt < max_retries - 1:
+                    logging.warning(f"Waiting for database to become ready. Attempt {attempt + 1}/{max_retries}")
+                    time.sleep(retry_delay)
+                else:
+                    raise
 
     def get_telemetry(self, id):
         telemetry = {}
@@ -195,48 +208,83 @@ AND a.ts_created < NOW() - INTERVAL 1 DAY
         cur.close()
         return neighbors
 
-    def get_traceroutes(self):
-        tracerouts = []
-        sql = """SELECT from_id, to_id, route, snr, ts_created
-FROM traceroute ORDER BY ts_created DESC"""
+    def get_traceroutes(self, page=1, per_page=25):
+        """Get paginated traceroutes with SNR information."""
+        # Get total count first
         cur = self.db.cursor()
-        cur.execute(sql)
+        cur.execute("SELECT COUNT(*) FROM traceroute")
+        total = cur.fetchone()[0]
+        
+        # Get paginated results with all fields
+        sql = """SELECT traceroute_id, from_id, to_id, route, route_back,
+            snr_towards, snr_back, success, channel, hop_limit, ts_created
+            FROM traceroute 
+            ORDER BY ts_created DESC
+            LIMIT %s OFFSET %s"""
+        
+        offset = (page - 1) * per_page
+        cur.execute(sql, (per_page, offset))
         rows = cur.fetchall()
+        
+        traceroutes = []
         for row in rows:
-            tracerouts.append(
-                {
-                    "from_id": row[0],
-                    "to_id": row[1],
-                    "route":
-                        [int(a) for a in row[2].split(";")] if row[2] else [],
-                    "snr":
-                        [int(s) / 4 for s in row[3].split(";")] if row[3] else [],
-                    "ts_created": row[4].timestamp()
-                }
-            )
+            traceroutes.append({
+                "id": row[0],
+                "from_id": row[1],
+                "to_id": row[2],
+                "route": [int(a) for a in row[3].split(";")] if row[3] else [],
+                "route_back": [int(a) for a in row[4].split(";")] if row[4] else [],
+                "snr_towards": [float(s) for s in row[5].split(";")] if row[5] else [],
+                "snr_back": [float(s) for s in row[6].split(";")] if row[6] else [],
+                "success": row[7],
+                "channel": row[8],
+                "hop_limit": row[9],
+                "ts_created": row[10].timestamp()
+            })
         cur.close()
-        return tracerouts
+        
+        return {
+            "items": traceroutes,
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "pages": (total + per_page - 1) // per_page,
+            "has_prev": page > 1,
+            "has_next": page * per_page < total,
+            "prev_num": page - 1,
+            "next_num": page + 1
+        }
+
+    def iter_pages(current_page, total_pages, left_edge=2, left_current=2, right_current=2, right_edge=2):
+        """Helper function to generate page numbers for pagination."""
+        last = 0
+        for num in range(1, total_pages + 1):
+            if (num <= left_edge or
+                (current_page - left_current - 1 < num < current_page + right_current) or
+                num > total_pages - right_edge):
+                if last + 1 != num:
+                    yield None
+                yield num
+                last = num
 
     def get_nodes(self, active=False):
         nodes = {}
         active_threshold = int(
             self.config["server"]["node_activity_prune_threshold"]
         )
-        all_sql = """SELECT n.*, u.username owner_username
-FROM nodeinfo n LEFT OUTER JOIN meshuser u ON n.owner = u.email"""
-        active_sql = """
-SELECT n.*, u.username owner_username FROM
-nodeinfo n LEFT OUTER JOIN meshuser u ON n.owner = u.email
-WHERE n.ts_seen > FROM_UNIXTIME(%s)"""
+        # Modified to include all nodes but still mark active status
+        all_sql = """SELECT n.*, u.username owner_username,
+            CASE WHEN n.ts_seen > FROM_UNIXTIME(%s) THEN 1 ELSE 0 END as is_active
+        FROM nodeinfo n 
+        LEFT OUTER JOIN meshuser u ON n.owner = u.email"""
+        
         cur = self.db.cursor()
-        if not active:
-            cur.execute(all_sql)
-        else:
-            timeout = time.time() - active_threshold
-            params = (timeout, )
-            cur.execute(active_sql, params)
+        timeout = time.time() - active_threshold
+        params = (timeout, )
+        cur.execute(all_sql, params)
         rows = cur.fetchall()
         column_names = [desc[0] for desc in cur.description]
+        
         for row in rows:
             record = {}
             for i in range(len(row)):
@@ -244,7 +292,9 @@ WHERE n.ts_seen > FROM_UNIXTIME(%s)"""
                     record[column_names[i]] = row[i].timestamp()
                 else:
                     record[column_names[i]] = row[i]
-            is_active = record["ts_seen"] > (time.time() - active_threshold)
+            
+            # Use the is_active field from the query
+            is_active = bool(record.get("is_active", 0))
             record["telemetry"] = self.get_telemetry(row[0])
             record["neighbors"] = self.get_neighbors(row[0])
             record["position"] = self.get_position(row[0])
@@ -264,16 +314,38 @@ WHERE n.ts_seen > FROM_UNIXTIME(%s)"""
             record["last_seen"] = utils.time_since(record["ts_seen"])
             node_id = utils.convert_node_id_from_int_to_hex(row[0])
             nodes[node_id] = record
+        
         cur.close()
         return nodes
 
-    def get_chat(self):
-        chats = []
-        sql = "SELECT DISTINCT * FROM text ORDER BY ts_created DESC"
+    def get_chat(self, page=1, per_page=50):
+        """Get paginated chat messages with reception data."""
+        # Get total count first
         cur = self.db.cursor()
-        cur.execute(sql)
+        cur.execute("SELECT COUNT(DISTINCT t.message_id) FROM text t")
+        total = cur.fetchone()[0]
+        
+        # Get paginated results with reception data
+        sql = """
+        SELECT t.*,
+            GROUP_CONCAT(
+                CONCAT_WS(':', r.received_by_id, r.rx_snr, r.rx_rssi, r.hop_limit, r.hop_start)
+                SEPARATOR '|'
+            ) AS reception_data
+        FROM text t
+        LEFT JOIN message_reception r ON t.message_id = r.message_id
+        GROUP BY t.message_id, t.from_id, t.to_id, t.text, t.ts_created
+        ORDER BY t.ts_created DESC
+        LIMIT %s OFFSET %s
+        """
+        
+        offset = (page - 1) * per_page
+        cur = self.db.cursor()
+        cur.execute(sql, (per_page, offset))
         rows = cur.fetchall()
         column_names = [desc[0] for desc in cur.description]
+        
+        chats = []
         prev_key = ""
         for row in rows:
             record = {}
@@ -283,13 +355,52 @@ WHERE n.ts_seen > FROM_UNIXTIME(%s)"""
                     record[col] = row[i].timestamp()
                 else:
                     record[col] = row[i]
+            
+            # Parse reception information
+            record["receptions"] = []
+            receptions_str = record.get("reception_data")
+            if receptions_str:
+                for reception in receptions_str.split("|"):
+                    if reception and reception.count(':') >= 2:
+                        try:
+                            parts = reception.split(":")
+                            node_id = parts[0]
+                            snr = parts[1]
+                            rssi = parts[2]
+                            hop_limit = parts[3] if len(parts) > 3 else None
+                            hop_start = parts[4] if len(parts) > 4 else None
+                            
+                            reception_data = {
+                                "node_id": int(node_id),
+                                "rx_snr": float(snr),
+                                "rx_rssi": int(rssi),
+                                "hop_limit": int(hop_limit) if hop_limit and hop_limit != "None" else None,
+                                "hop_start": int(hop_start) if hop_start and hop_start != "None" else None
+                            }
+                            record["receptions"].append(reception_data)
+                        except (ValueError, TypeError):
+                            continue
+                            
             record["from"] = self.hex_id(record["from_id"])
             record["to"] = self.hex_id(record["to_id"])
-            msg_key = record["from"] + record["to"] + record["text"]
+            msg_key = f"{record['from']}{record['to']}{record['text']}{record['message_id']}"
             if msg_key != prev_key:
                 chats.append(record)
                 prev_key = msg_key
-        return chats
+        
+        cur.close()
+        
+        return {
+            "items": chats,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "pages": (total + per_page - 1) // per_page,
+            "has_prev": page > 1,
+            "has_next": page * per_page < total,
+            "prev_num": page - 1,
+            "next_num": page + 1
+        }
 
     def get_route_coordinates(self, id):
         sql = """SELECT longitude_i, latitude_i
@@ -606,23 +717,97 @@ ts_updated = VALUES(ts_updated)"""
         from_id = self.verify_node(data["from"])
         to_id = self.verify_node(data["to"])
         payload = dict(data["decoded"]["json_payload"])
+        
+        # Process forward route and SNR
         route = None
-        snr = None
+        snr_towards = None
         if "route" in payload:
             route = ";".join(str(r) for r in payload["route"])
         if "snr_towards" in payload:
-            snr = ";".join(str(s) for s in payload["snr_towards"])
+            snr_towards = ";".join(str(s) for s in payload["snr_towards"])
+        
+        # Process return route and SNR
+        route_back = None
+        snr_back = None
+        if "route_back" in payload:
+            route_back = ";".join(str(r) for r in payload["route_back"])
+        if "snr_back" in payload:
+            snr_back = ";".join(str(s) for s in payload["snr_back"])
+
+        # A traceroute is successful if we have either:
+        # 1. A direct connection with SNR data in both directions
+        # 2. A multi-hop route with SNR data in both directions
+        is_direct = not bool(route and route_back)  # True if no hops in either direction
+        
+        success = False
+        if is_direct:
+            # For direct connections, we just need SNR data in both directions
+            success = bool(snr_towards and snr_back)
+        else:
+            # For multi-hop routes, we need both routes and their SNR data
+            success = bool(route and route_back and snr_towards and snr_back)
+
+        # Extract additional metadata
+        channel = data.get("channel", None)
+        hop_limit = data.get("hop_limit", None)
+        request_id = data.get("id", None)
+        traceroute_time = payload.get("time", None)
 
         sql = """INSERT INTO traceroute
-(from_id, to_id, route, snr, ts_created) VALUES (%s, %s, %s, %s, NOW())"""
+        (from_id, to_id, channel, hop_limit, success, request_id, route, route_back, 
+        snr_towards, snr_back, time, ts_created)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, FROM_UNIXTIME(%s), NOW())"""
+        
         params = (
             from_id,
             to_id,
+            channel,
+            hop_limit,
+            success,
+            request_id,
             route,
-            snr
+            route_back,
+            snr_towards,
+            snr_back,
+            traceroute_time
         )
         self.db.cursor().execute(sql, params)
         self.db.commit()
+
+    def get_successful_traceroutes(self):
+        sql = """
+        SELECT 
+            t.traceroute_id,
+            t.from_id,
+            t.to_id,
+            t.route,
+            t.route_back,
+            t.snr,
+            t.snr_back,
+            t.ts_created,
+            n1.short_name as from_name,
+            n2.short_name as to_name
+        FROM traceroute t
+        JOIN nodeinfo n1 ON t.from_id = n1.id
+        JOIN nodeinfo n2 ON t.to_id = n2.id
+        WHERE t.route_back IS NOT NULL
+        AND t.route_back != ''
+        ORDER BY t.ts_created DESC
+        """
+        cur = self.db.cursor()
+        cur.execute(sql)
+        
+        results = []
+        column_names = [desc[0] for desc in cur.description]
+        for row in cur.fetchall():
+            result = dict(zip(column_names, row))
+            # Convert timestamp to Unix timestamp if needed
+            if isinstance(result['ts_created'], datetime.datetime):
+                result['ts_created'] = result['ts_created'].timestamp()
+            results.append(result)
+        
+        cur.close()
+        return results
 
     def store_telemetry(self, data):
         cur = self.db.cursor()
@@ -684,26 +869,46 @@ VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, FROM_UNIXTIME(%s))
         self.db.cursor().execute(sql, params)
         self.db.commit()
 
-    def store_text(self, data):
-        from_id = self.verify_node(data["from"])
-        to_id = self.verify_node(data["to"])
-        payload = dict(data["decoded"]["json_payload"])
-        sql = """INSERT INTO text
-(from_id, to_id, text, channel, ts_created)
-VALUES (%s, %s, %s, %s, NOW())"""
-        params = (
-            from_id,
-            to_id,
-            payload["text"],
-            data["channel"] if "channel" in data else 0
-        )
-        self.db.cursor().execute(sql, params)
-        self.db.commit()
-        match = re.search(
-            r"meshinfo (\d{4})",
-            payload["text"].decode(),
-            re.IGNORECASE
-        )
+    def store_text(self, data, topic):
+        """Store text message."""
+        if "from" not in data or "to" not in data or "decoded" not in data:
+            return
+        if "json_payload" not in data["decoded"] or "text" not in data["decoded"]["json_payload"]:
+            return
+                
+        from_id = data["from"]
+        to_id = data["to"]
+        text = data["decoded"]["json_payload"]["text"]
+        channel = data.get("channel", 0)
+        message_id = data.get("id")
+
+        if not message_id:  # Skip messages without ID
+            return
+
+        # Check if message already exists
+        cur = self.db.cursor()
+        cur.execute("SELECT 1 FROM text WHERE message_id = %s", (message_id,))
+        exists = cur.fetchone()
+        cur.close()
+
+        if not exists:
+            # Store the message only if it doesn't exist
+            sql = """INSERT INTO text
+            (from_id, to_id, text, channel, message_id, ts_created)
+            VALUES (%s, %s, %s, %s, %s, NOW())"""
+            params = (from_id, to_id, text, channel, message_id)
+            cur = self.db.cursor()
+            cur.execute(sql, params)
+            cur.close()
+            self.db.commit()
+
+        # Reception information is now handled by the main store() method
+        # No need to duplicate that code here
+        
+        # Check for meshinfo command
+        if isinstance(text, bytes):
+            text = text.decode()
+        match = re.search(r"meshinfo (\d{4})", text, re.IGNORECASE)
         if match:
             otp = match.group(1)
             node = from_id
@@ -817,6 +1022,27 @@ WHERE id = %s ORDER BY ts_created DESC LIMIT 1"""
             frm = data["from"]
             via = self.int_id(topic.split("/")[-1])
             self.verify_node(frm, via)
+        
+        # Extract common hop information before processing specific message types
+        message_id = data.get("id")
+        hop_limit = data.get("hop_limit")
+        hop_start = data.get("hop_start")
+        rx_snr = data.get("rx_snr")
+        rx_rssi = data.get("rx_rssi")
+        
+        # Store reception information if this is a received message with SNR/RSSI data
+        if message_id and rx_snr is not None and rx_rssi is not None:
+            received_by = None
+            # Try to determine the receiving node from the topic
+            topic_parts = topic.split("/")
+            if len(topic_parts) > 1:
+                received_by = self.int_id(topic_parts[-1])
+                
+            if received_by and received_by != data.get("from"):  # Don't store reception by sender
+                self.store_reception(message_id, data["from"], received_by, rx_snr, rx_rssi, 
+                                    data.get("rx_time"), hop_limit, hop_start)
+        
+        # Continue with the regular message type processing
         tp = data["type"]
         if tp == "nodeinfo":
             self.store_node(data)
@@ -831,7 +1057,33 @@ WHERE id = %s ORDER BY ts_created DESC LIMIT 1"""
         elif tp == "telemetry":
             self.store_telemetry(data)
         elif tp == "text":
-            self.store_text(data)
+            self.store_text(data, topic)  # Only one text handler, with topic parameter
+
+    def store_reception(self, message_id, from_id, received_by_id, rx_snr, rx_rssi, rx_time, hop_limit, hop_start):
+        """Store reception information for any message type with hop data."""
+        sql = """INSERT INTO message_reception
+        (message_id, from_id, received_by_id, rx_snr, rx_rssi, rx_time, hop_limit, hop_start)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+        rx_snr = VALUES(rx_snr),
+        rx_rssi = VALUES(rx_rssi),
+        rx_time = VALUES(rx_time),
+        hop_limit = VALUES(hop_limit),
+        hop_start = VALUES(hop_start)"""
+        params = (
+            message_id,
+            from_id,
+            received_by_id,
+            rx_snr,
+            rx_rssi,
+            rx_time,
+            hop_limit,
+            hop_start
+        )
+        cur = self.db.cursor()
+        cur.execute(sql, params)
+        cur.close()
+        self.db.commit()
 
     def setup_database(self):
         creates = [
@@ -899,7 +1151,7 @@ WHERE id = %s ORDER BY ts_created DESC LIMIT 1"""
     temperature FLOAT(10, 7),
     relative_humidity FLOAT(10, 7),
     barometric_pressure FLOAT(12, 7),
-    gas_resistance FLOAT(10, 7),
+    gas_resistance DOUBLE,
     current FLOAT(10, 7),
     telemetry_time TIMESTAMP,
     ts_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -911,7 +1163,9 @@ WHERE id = %s ORDER BY ts_created DESC LIMIT 1"""
     to_id INT UNSIGNED NOT NULL,
     channel INT UNSIGNED NOT NULL,
     text VARCHAR(255),
-    ts_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    message_id BIGINT,
+    ts_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_text_message_id (message_id)
 )""",
             """CREATE TABLE IF NOT EXISTS  meshlog (
     topic varchar(255) not null,
@@ -931,6 +1185,34 @@ WHERE id = %s ORDER BY ts_created DESC LIMIT 1"""
         for create in creates:
             cur.execute(create)
         cur.close()
+
+        # Run migrations before final commit
+        try:
+            # Use explicit path relative to meshdata.py location
+            import os
+            import sys
+            migrations_path = os.path.join(os.path.dirname(__file__), 'migrations')
+            sys.path.insert(0, os.path.dirname(__file__))
+            import migrations.add_message_reception as add_message_reception
+            add_message_reception.migrate(self.db)
+        except ImportError as e:
+            logging.error(f"Failed to import migration module: {e}")
+            # Continue with database setup even if migration fails
+            pass
+        except Exception as e:
+            logging.error(f"Failed to run migration: {e}")
+            raise
+        try:
+            import migrations.add_message_reception as add_message_reception
+            import migrations.add_traceroute_snr as add_traceroute_snr
+            import migrations.add_traceroute_id as add_traceroute_id
+            add_message_reception.migrate(self.db)
+            add_traceroute_snr.migrate(self.db)
+            add_traceroute_id.migrate(self.db)
+        except ImportError as e:
+            logging.error(f"Failed to import migration module: {e}")
+            pass
+
         self.db.commit()
 
     def import_nodes(self, filename):

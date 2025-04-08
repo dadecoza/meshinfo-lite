@@ -24,7 +24,7 @@
         <tr>
           <td>
             {% if message.ts_created %}
-            {{ datetime.fromtimestamp(message.ts_created).strftime('%Y-%m-%d %H:%M:%S') }}
+            {{ format_timestamp(message.ts_created) }}
             {% endif %}
           </td>
           <td>

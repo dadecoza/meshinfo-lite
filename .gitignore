@@ -17,6 +17,7 @@ output/*
 mosquitto/data/*
 postgres/data/*
 config.json
+docker-compose.yml
 spa
 
 .pnp.*
@@ -34,4 +35,4 @@ pyenv.cfg
 config.ini
 www/*.html
 srtm_data/
-
+mysql_data

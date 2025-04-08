@@ -121,7 +121,28 @@
       zIndex: 2
     });
 
-    const nodes = {};
+    // Add helper functions for time formatting
+    function formatTimestamp(timestamp) {
+      return new Date(timestamp * 1000).toLocaleString();
+    }
+
+    function timeAgo(timestamp) {
+      const seconds = Math.floor((Date.now() / 1000) - timestamp);
+      if (seconds < 60) return seconds + "s ago";
+      if (seconds < 3600) return Math.floor(seconds/60) + "m ago";
+      if (seconds < 86400) return Math.floor(seconds/3600) + "h ago";
+      return Math.floor(seconds/86400) + "d ago";
+    }
+
+    function calculateDistance(pos1, pos2) {
+      if (!pos1 || !pos2) return null;
+      return Math.sqrt(
+        Math.pow(pos1[0] - pos2[0], 2) +
+        Math.pow(pos1[1] - pos2[1], 2)
+      ) * 111.32;
+    }
+
+    var nodes = {};
     var neighborLayers = [];
     {% for id, node in nodes.items() %}
       {% if node.position is defined and node.position and node.position.longitude_i and node.position.latitude_i %}
@@ -129,9 +150,10 @@
         id: '{{ id }}',
         short_name: '{{ node.short_name }}',
         long_name: '{{ node.long_name }}',
-        last_seen: '{{ node.last_seen }}',
+        last_seen: '{{ time_ago(node.ts_seen) }}',
         position: [{{ node.position.longitude_i / 10000000 }}, {{ node.position.latitude_i / 10000000 }}],
-        online: {% if node.active %}true{% else %}false{% endif %}
+        online: {% if node.active %}true{% else %}false{% endif %},
+        zero_hop_data: {{ zero_hop_data.get(id, {'heard': [], 'heard_by': []}) | tojson | safe }}
       };
       {% if node.neighbors %}
       nodes['{{ id }}'].neighbors = [
@@ -150,12 +172,24 @@
     {% endfor %}
 
     const features = [];
-    // Add nodes to the map, loop through all nodes
-    // and add a feature for each node that has a position
+    // Create a map to track positions
+    const positionMap = new Map();
+    
     Object.values(nodes).forEach(function(node) {
       if (node.position) {
+        const posKey = node.position.join(',');
+        const offset = positionMap.get(posKey) || 0;
+        
+        // Create slightly offset coordinates if this position was seen before
+        let offsetCoords = [...node.position];
+        if (offset > 0) {
+          // Offset by approximately 100 meters
+          offsetCoords[0] += 0.0001;
+          offsetCoords[1] += 0.0001;
+        }
+        
         var feature = new ol.Feature({
-          geometry: new ol.geom.Point(ol.proj.fromLonLat(node.position)),
+          geometry: new ol.geom.Point(ol.proj.fromLonLat(offsetCoords)),
           node: node,
         });
         if (node.online) {
@@ -164,6 +198,9 @@
           feature.setStyle(offlineStyle);
         }
         features.push(feature);
+        
+        // Increment the count for this position
+        positionMap.set(posKey, offset + 1);
       }
     });
 
@@ -244,159 +281,205 @@
           var address = await reverseGeocode(node.position[0], node.position[1]);
           var display_name = [address.address.town, address.address.city, address.address.county, address.address.state, address.address.country].filter(Boolean).join(', ');
 
-          var panel = '<a href="node_' + node.id + '.html">' + node.short_name + ' / ' + node.id + '</a><br/><br/>'
-            + '<b>Position</b><br/>' + node.position + '<br/><br/>'
-            + '<b>Location</b><br/>' + display_name + '<br/><br/>'
-            + '<b>Status</b><br/>' + (node.online ? 'Online' : 'Offline') + '<br/><br/>'
-            + '<b>Last Seen</b><br/>' + node.last_seen + '<br/><br/>';
+          // Build the basic info panel
+          var panel = '<div style="position: relative; margin-bottom: 12px">'
+            + '<span title="' + (node.online ? 'Online' : 'Offline') + '" style="position: absolute; top: 0; right: 0; font-size: 1.5em">' 
+            + (node.online ? '🟢' : '⚫') + '</span>'
+            + '<div class="fw-bold">' + node.long_name + '</div>'
+            + '<div class="text-muted small">' + node.id + '</div>'
+            + '</div>'
+            + '<div class="small">'
+            + '<div class="mb-2"><i class="text-muted">Last seen:</i> ' + node.last_seen + '</div>'
+            + '<div class="mb-2"><i class="text-muted">Position:</i> ' + node.position + '</div>'
+            + '<div class="mb-2"><i class="text-muted">Location:</i> ' + display_name + '</div>'
+            + '</div>';
 
-          panel += '<b>Neighbors Heard</b><br/>';
-          if (node.neighbors.length == 0) {
-            panel += 'None';
-          } else {
-            panel += "<table class='table table-striped table-bordered table-sm'>";
-            panel += "<thead><tr><th>Node</th><th>SNR</th><th>Distance</th></tr></thead>";
-            panel += "<tbody>";
-            panel += node.neighbors.map(function(neighbor) {
+          // Add the heard section
+          panel += '<b>Heard (zero hop)</b><br/>';
+          panel += "<table class='table table-striped table-bordered table-sm'>";
+          panel += "<thead><tr><th>Node</th><th>Signal</th><th>Distance</th><th>Source</th></tr></thead>";
+          panel += "<tbody>";
+
+          // Add neighbor data
+          if (node.neighbors) {
+            node.neighbors.forEach(function(neighbor) {
               var nnode = nodes[neighbor.id];
-              if (!nnode) {
-                return '<tr><td class="secondary-text">UNK</td><td>' + neighbor.snr + '</td><td></td></tr>';
-              }
-              const distance = Math.sqrt(
-                Math.pow(node.position[0] - nnode.position[0], 2) +
-                Math.pow(node.position[1] - nnode.position[1], 2)
-              ) * 111.32;
-              return '<tr><td><a href="node_' + nnode.id + '.html">' + nnode.short_name + '</a></td><td>' + neighbor.snr + '</td><td>' + distance.toFixed(2) + ' km</td></tr>';
-            }).join('');
-            panel += "</tbody>";
-            panel += "</table>";
-
-            node.neighbors.map(function(neighbor) {
-              var nnode = nodes[neighbor.id];
-              if (!nnode || !nnode.position) {
-                return;
-              }
-              var points = [node.position, nnode.position];
-
-              for (var i = 0; i < points.length; i++) {
-                  points[i] = ol.proj.transform(points[i], 'EPSG:4326', 'EPSG:3857');
-              }
-
-              var featureLine = new ol.Feature({
-                  geometry: new ol.geom.LineString(points)
-              });
-
-              var vectorLine = new ol.source.Vector({});
-              vectorLine.addFeature(featureLine);
-
-              var vectorLineLayer = new ol.layer.Vector({
-                  source: vectorLine,
-                  style: new ol.style.Style({
-                      fill: new ol.style.Fill({ color: '#66FF66', weight: 8 }),
-                      stroke: new ol.style.Stroke({ color: '#66FF66', width: 4 })
-                  })
-              });
-              neighborLayers.push(vectorLineLayer);
-              map.addLayer(vectorLineLayer);
+              var distance = nnode ? calculateDistance(node.position, nnode.position) : null;
+              panel += '<tr>';
+              panel += '<td>' + (nnode ? '<a href="node_' + neighbor.id + '.html">' + nnode.short_name + '</a>' : '<span class="text-secondary">UNK</span>') + '</td>';
+              panel += '<td>SNR: ' + neighbor.snr + '</td>';
+              panel += '<td>' + (distance ? distance.toFixed(2) + ' km' : '') + '</td>';
+              panel += '<td><span title="Neighbor data">N</span></td>';
+              panel += '</tr>';
             });
           }
-          panel += '<br/><br/>';
 
-          panel += '<b>Heard By Neighbors</b><br/>';
-          var heard_by = Object.keys(nodes).filter(function(id) {
-            return nodes[id].neighbors.some(function(neighbor) {
-              return neighbor.id == node.id;
+          // Add zero-hop message data
+          if (node.zero_hop_data && node.zero_hop_data.heard) {
+            node.zero_hop_data.heard.forEach(function(heard) {
+              var nnode = nodes[heard.node_id];
+              var distance = nnode ? calculateDistance(node.position, nnode.position) : null;
+              panel += '<tr>';
+              panel += '<td>' + (nnode ? '<a href="node_' + heard.node_id + '.html">' + nnode.short_name + '</a>' : '<span class="text-secondary">UNK</span>') + '</td>';
+              panel += '<td>SNR: ' + heard.best_snr + ' max / ' + parseFloat(heard.avg_snr).toFixed(1) + ' avg</td>';
+              panel += '<td>' + (distance ? distance.toFixed(2) + ' km' : '') + '</td>';
+              panel += '<td><span title="Message data">M</span> (' + heard.count + ') <small title="Last heard ' + formatTimestamp(heard.last_rx_time) + '">' + timeAgo(heard.last_rx_time) + '</small></td>';
+              panel += '</tr>';
             });
+          }
+          panel += "</tbody></table>";
+
+          // Add the heard by section
+          panel += '<br/><b>Heard By (zero hop)</b><br/>';
+          panel += "<table class='table table-striped table-bordered table-sm'>";
+          panel += "<thead><tr><th>Node</th><th>Signal</th><th>Distance</th><th>Source</th></tr></thead>";
+          panel += "<tbody>";
+
+          // Add nodes that heard this node (from neighbor data)
+          Object.values(nodes).forEach(function(nnode) {
+            if (nnode.neighbors && nnode.neighbors.some(n => n.id === node.id)) {
+              var neighbor = nnode.neighbors.find(n => n.id === node.id);
+              var distance = calculateDistance(node.position, nnode.position);
+              panel += '<tr>';
+              panel += '<td><a href="node_' + nnode.id + '.html">' + nnode.short_name + '</a></td>';
+              panel += '<td>SNR: ' + neighbor.snr + '</td>';
+              panel += '<td>' + (distance ? distance.toFixed(2) + ' km' : '') + '</td>';
+              panel += '<td><span title="Neighbor data">N</span></td>';
+              panel += '</tr>';
+            }
           });
-          if (heard_by.length == 0) {
-            panel += 'None<br/>';
-          } else {
-            panel += "<table class='table table-striped table-bordered table-sm'>";
-            panel += "<thead><tr><th>Node</th><th>SNR</th><th>Distance</th></tr></thead>";
-            panel += "<tbody>";
-            panel += heard_by.map(function(id) {
-              var nnode = nodes[id];
-              var neighbor = nnode.neighbors.find(function(neighbor) {
-                return neighbor.id == node.id;
-              });
-              if (!nnode) {
-                return '<tr><td class="text-secondary">UNK</td><td>' + neighbor.snr + '</td><td></td></tr>';
-              }
-              // calculate distance between two nodes without using ol.sphere
-              const distance = Math.sqrt(
-                Math.pow(node.position[0] - nnode.position[0], 2) +
-                Math.pow(node.position[1] - nnode.position[1], 2)
-              ) * 111.32;
-              return '<tr><td><a href="node_' + nnode.id + '.html">' + nnode.short_name + '</a></td><td>' + neighbor.snr + '</td><td>' + distance.toFixed(2) + ' km</td></tr>';
-            }).join('');
-            panel += "</tbody>";
-            panel += "</table>";
 
-            // add the heard_by lines
-            heard_by.map(function(id) {
-              var nnode = nodes[id];
-              if (!nnode || !nnode.position) {
-                return;
-              }
+          // Add zero-hop heard-by data
+          if (node.zero_hop_data && node.zero_hop_data.heard_by) {
+            node.zero_hop_data.heard_by.forEach(function(heard) {
+              var nnode = nodes[heard.node_id];
+              var distance = nnode ? calculateDistance(node.position, nnode.position) : null;
+              panel += '<tr>';
+              panel += '<td>' + (nnode ? '<a href="node_' + heard.node_id + '.html">' + nnode.short_name + '</a>' : '<span class="text-secondary">UNK</span>') + '</td>';
+              panel += '<td>SNR: ' + heard.best_snr + ' max / ' + parseFloat(heard.avg_snr).toFixed(1) + ' avg</td>';
+              panel += '<td>' + (distance ? distance.toFixed(2) + ' km' : '') + '</td>';
+              panel += '<td><span title="Message data">M</span> (' + heard.count + ') <small title="Last heard ' + formatTimestamp(heard.last_rx_time) + '">' + timeAgo(heard.last_rx_time) + '</small></td>';
+              panel += '</tr>';
+            });
+          }
+          panel += "</tbody></table>";
+
+          // Add elsewhere section
+          panel += '<br/><b>Elsewhere</b><br/>';
+          var node_id = parseInt(node.id, 16);
+          panel += '<a href="https://meshtastic.davekeogh.com/?node_id=' + node_id + '" target="_blank">PugetMesh Map</a><br/>';
+          panel += '<a href="https://meshmap.net/#' + node_id + '" target="_blank">MeshMap</a><br/>';
+
+          // Draw connection lines
+          // Draw neighbor connections
+          if (node.neighbors) {
+            node.neighbors.forEach(function(neighbor) {
+              var nnode = nodes[neighbor.id];
+              if (!nnode || !nnode.position) return;
+              
               var points = [node.position, nnode.position];
-
               for (var i = 0; i < points.length; i++) {
-                  points[i] = ol.proj.transform(points[i], 'EPSG:4326', 'EPSG:3857');
+                points[i] = ol.proj.transform(points[i], 'EPSG:4326', 'EPSG:3857');
               }
 
               var featureLine = new ol.Feature({
-                  geometry: new ol.geom.LineString(points)
+                geometry: new ol.geom.LineString(points)
               });
 
               var vectorLine = new ol.source.Vector({});
               vectorLine.addFeature(featureLine);
 
               var lineStyle = new ol.style.Style({
-                  fill: new ol.style.Fill({ color: '#6666FF', weight: 8 }),
-                  stroke: new ol.style.Stroke({ color: '#6666FF', width: 4 })
+                fill: new ol.style.Fill({ color: '#66FF66', weight: 8 }),
+                stroke: new ol.style.Stroke({ color: '#66FF66', width: 4 })
               });
-              // if the nnode is also a neighbor of the node, make the line purple
-              if (node.neighbors.some(function(neighbor) { return neighbor.id == id; })) {
-                lineStyle = new ol.style.Style({
-                  fill: new ol.style.Fill({ color: '#FF66FF', weight: 8 }),
-                  stroke: new ol.style.Stroke({ color: '#FF66FF', width: 4 })
-                });
-              }
 
               var vectorLineLayer = new ol.layer.Vector({
-                  source: vectorLine,
-                  style: lineStyle
+                source: vectorLine,
+                style: lineStyle
               });
               neighborLayers.push(vectorLineLayer);
               map.addLayer(vectorLineLayer);
             });
           }
 
-          panel += '<br/>';
+          // Draw zero-hop connections
+          if (node.zero_hop_data) {
+            // Draw lines for heard nodes
+            node.zero_hop_data.heard.forEach(function(heard) {
+              var nnode = nodes[heard.node_id];
+              if (!nnode || !nnode.position) return;
+              
+              var points = [node.position, nnode.position];
+              for (var i = 0; i < points.length; i++) {
+                points[i] = ol.proj.transform(points[i], 'EPSG:4326', 'EPSG:3857');
+              }
 
-          panel += '<b>Elsewhere</b><br/>';
-          var node_id = parseInt(node.id, 16);
-          panel += '<a href="https://meshview.zr1rf.za.net/packet_list/' + node_id + '" target="_blank">Armooo\'s MeshView</a><br/>';
-          panel += '<a href="https://meshtastic.liamcottle.net/?node_id=' + node_id + '" target="_blank">Liam\'s Map</a><br/>';
-          panel += '<a href="https://meshmap.net/#' + node_id + '" target="_blank">MeshMap</a><br/>';
+              var featureLine = new ol.Feature({
+                geometry: new ol.geom.LineString(points)
+              });
 
-          //content.innerHTML = panel;
-          //overlay.setPosition(ol.proj.fromLonLat(node.position));
+              var vectorLine = new ol.source.Vector({});
+              vectorLine.addFeature(featureLine);
 
-          nodeTitle.innerHTML = node.long_name;
-          nodeSubtitle.innerHTML = node.short_name;
+              // Use purple if there's a bi-directional connection
+              var isBidirectional = node.zero_hop_data.heard_by.some(h => h.node_id === heard.node_id);
+              var lineStyle = new ol.style.Style({
+                fill: new ol.style.Fill({ color: isBidirectional ? '#FF66FF' : '#66FF66', weight: 8 }),
+                stroke: new ol.style.Stroke({ color: isBidirectional ? '#FF66FF' : '#66FF66', width: 4 })
+              });
+
+              var vectorLineLayer = new ol.layer.Vector({
+                source: vectorLine,
+                style: lineStyle
+              });
+              neighborLayers.push(vectorLineLayer);
+              map.addLayer(vectorLineLayer);
+            });
+
+            // Draw lines for heard-by nodes (if not already drawn)
+            node.zero_hop_data.heard_by.forEach(function(heard) {
+              var nnode = nodes[heard.node_id];
+              if (!nnode || !nnode.position) return;
+              
+              // Skip if we already drew a line for this connection
+              if (node.zero_hop_data.heard.some(h => h.node_id === heard.node_id)) return;
+              
+              var points = [node.position, nnode.position];
+              for (var i = 0; i < points.length; i++) {
+                points[i] = ol.proj.transform(points[i], 'EPSG:4326', 'EPSG:3857');
+              }
+
+              var featureLine = new ol.Feature({
+                geometry: new ol.geom.LineString(points)
+              });
+
+              var vectorLine = new ol.source.Vector({});
+              vectorLine.addFeature(featureLine);
+
+              var lineStyle = new ol.style.Style({
+                fill: new ol.style.Fill({ color: '#6666FF', weight: 8 }),
+                stroke: new ol.style.Stroke({ color: '#6666FF', width: 4 })
+              });
+
+              var vectorLineLayer = new ol.layer.Vector({
+                source: vectorLine,
+                style: lineStyle
+              });
+              neighborLayers.push(vectorLineLayer);
+              map.addLayer(vectorLineLayer);
+            });
+          }
+
+          // Update the display
           nodeContent.innerHTML = panel;
         } else {
-          //content.innerHTML = '<b>Unknown</b>';
-          //overlay.setPosition(coordinate);
-
           nodeTitle.innerHTML = 'Unknown';
           nodeSubtitle.innerHTML = 'UNK';
           nodeContent.innerHTML = '';
           $('#details').hide();
         }
       } else {
-        //overlay.setPosition(undefined);
         nodeTitle.innerHTML = '';
         nodeSubtitle.innerHTML = '';
         nodeContent.innerHTML = '';
@@ -404,7 +487,6 @@
         $('#details').hide();
       }
     });
-    $('#details').hide();
   </script>
   <style>
     #map {

@@ -1,0 +1,360 @@
+{% extends "layout.html.j2" %}
+
+{% block title %}Message Map | MeshInfo{% endblock %}
+{% block head %}
+  <script src="https://cdn.jsdelivr.net/npm/openlayers@4.6.5/dist/ol.min.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/openlayers@4.6.5/dist/ol.min.css" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="container pt-3">
+  <p>
+    <a href="chat.html">Chat</a> &gt; Message Map
+  </p>
+  
+  <div class="card mb-3">
+    <div class="card-body">
+      <h5 class="card-title">Message Details</h5>
+      <p class="card-text">
+        <strong>From:</strong> 
+        {% set from_id = utils.convert_node_id_from_int_to_hex(message.from_id) %}
+        {% if from_id in nodes and nodes[from_id].position and nodes[from_id].position.longitude_i is not none and nodes[from_id].position.latitude_i is not none %}
+          <a href="node_{{ from_id }}.html">{{ nodes[from_id].long_name }} ({{ nodes[from_id].short_name }})</a>
+        {% else %}
+          Unknown
+        {% endif %}
+        <br>
+        <strong>Time:</strong> {{ format_timestamp(message.ts_created) }}<br>
+        <strong>Message:</strong> {{ message.text }}
+      </p>
+    </div>
+  </div>
+
+  <div id="map" style="height: 70vh; width: 100%;"></div>
+  
+  <div id="legend" class="p-2" style="background-color: #ffffff;">
+    <div>LEGEND</div>
+    <div>
+      <div style="background-color: #FF6666; height: 4px; width: 25px; display: inline-flex;"></div> Direct Reception
+    </div>
+    <div>
+      <div style="background-color: #6666FF; height: 4px; width: 25px; display: inline-flex;"></div> Via Repeater
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  const map = new ol.Map({
+    layers: [
+      new ol.layer.Tile({
+        source: new ol.source.OSM(),
+      }),
+    ],
+    target: 'map',
+    view: new ol.View({
+      center: ol.proj.fromLonLat([0, 0]),
+      zoom: 2,
+    }),
+  });
+
+  var senderStyle = new ol.style.Style({
+    image: new ol.style.Circle({
+      radius: 8,
+      fill: new ol.style.Fill({
+        color: '#FF4444'
+      }),
+      stroke: new ol.style.Stroke({
+        color: 'white',
+        width: 2
+      })
+    })
+  });
+
+  var receiverStyle = new ol.style.Style({
+    image: new ol.style.Circle({
+      radius: 6,
+      fill: new ol.style.Fill({
+        color: '#4444FF'
+      }),
+      stroke: new ol.style.Stroke({
+        color: 'white',
+        width: 2
+      })
+    })
+  });
+
+  // Add function to calculate distance between nodes
+  function calculateDistance(lat1, lon1, lat2, lon2) {
+    return Math.round(Math.sqrt(
+      Math.pow(lat1 - lat2, 2) +
+      Math.pow(lon1 - lon2, 2)
+    ) * 111.32 * 100) / 100;  // Convert to km and round to 2 decimal places
+  }
+
+  const features = [];
+  const lines = [];
+  const labels = [];
+  
+  // Add sender
+  {% set from_id = utils.convert_node_id_from_int_to_hex(message.from_id) %}
+  {% if from_id in nodes and nodes[from_id].position and nodes[from_id].position.longitude_i is not none and nodes[from_id].position.latitude_i is not none %}
+    var sender = new ol.Feature({
+        geometry: new ol.geom.Point(ol.proj.fromLonLat([
+            {{ nodes[from_id].position.longitude_i / 10000000 }},
+            {{ nodes[from_id].position.latitude_i / 10000000 }}
+        ])),
+        node: {
+            id: '{{ from_id }}',
+            name: '{{ nodes[from_id].short_name }}',
+            longName: '{{ nodes[from_id].long_name }}',
+            type: 'sender',
+            lat: {{ nodes[from_id].position.latitude_i / 10000000 }},
+            lon: {{ nodes[from_id].position.longitude_i / 10000000 }}
+        }
+        });
+    sender.setStyle(senderStyle);
+    features.push(sender);
+    
+    // Add receivers and lines
+    {% for reception in message.receptions %}
+      {% set rid = utils.convert_node_id_from_int_to_hex(reception.node_id) %}
+      {% if rid in nodes and nodes[rid].position and nodes[rid].position.longitude_i is not none and nodes[rid].position.latitude_i is not none %}
+        var receiver = new ol.Feature({
+            geometry: new ol.geom.Point(ol.proj.fromLonLat([
+                {{ nodes[rid].position.longitude_i / 10000000 }},
+                {{ nodes[rid].position.latitude_i / 10000000 }}
+            ])),
+            node: {
+                id: '{{ rid }}',
+                name: '{{ nodes[rid].short_name }}',
+                longName: '{{ nodes[rid].long_name }}',
+                snr: {{ reception.rx_snr }},
+                hops: {% if reception.hop_start is not none %}{{ reception.hop_start - reception.hop_limit }}{% else %}0{% endif %},
+                type: 'receiver',
+                lat: {{ nodes[rid].position.latitude_i / 10000000 }},
+                lon: {{ nodes[rid].position.longitude_i / 10000000 }}
+            }
+            });
+        receiver.setStyle(receiverStyle);
+        features.push(receiver);
+        
+        // Calculate coordinates and distance
+        var fromCoord = [
+          {{ nodes[from_id].position.longitude_i / 10000000 }},
+          {{ nodes[from_id].position.latitude_i / 10000000 }}
+        ];
+        var toCoord = [
+          {{ nodes[rid].position.longitude_i / 10000000 }},
+          {{ nodes[rid].position.latitude_i / 10000000 }}
+        ];
+        
+        var distance = calculateDistance(fromCoord[1], fromCoord[0], toCoord[1], toCoord[0]);
+        var hops = {% if reception.hop_start is not none %}{{ reception.hop_start - reception.hop_limit }}{% else %}0{% endif %};
+        
+        // Create line
+        var points = [fromCoord, toCoord];
+        for (var i = 0; i < points.length; i++) {
+          points[i] = ol.proj.transform(points[i], 'EPSG:4326', 'EPSG:3857');
+        }
+        
+        var line = new ol.Feature({
+          geometry: new ol.geom.LineString(points)
+        });
+        
+        var lineStyle = new ol.style.Style({
+          stroke: new ol.style.Stroke({
+            color: {% if reception.hop_start is not none and reception.hop_start - reception.hop_limit > 0 %}'#6666FF'{% else %}'#FF6666'{% endif %},
+            width: 2
+          })
+        });
+        
+        line.setStyle(lineStyle);
+        lines.push(line);
+
+        // Add label at the middle of the line
+        var midPoint = [
+          (points[0][0] + points[1][0]) / 2,
+          (points[0][1] + points[1][1]) / 2
+        ];
+        
+        var label = new ol.Feature({
+          geometry: new ol.geom.Point(midPoint)
+        });
+        
+        var labelText = distance + ' km';
+        if (hops > 0) {
+          labelText += '\n' + hops + ' hop' + (hops > 1 ? 's' : '');
+        }
+        
+        label.setStyle(new ol.style.Style({
+            text: new ol.style.Text({
+                text: labelText,
+                font: '12px Arial',
+                fill: new ol.style.Fill({ color: '#000000' }),
+                stroke: new ol.style.Stroke({
+                color: '#ffffff',
+                width: 3
+                }),
+                padding: [3, 5, 3, 5],  // More balanced padding
+                backgroundFill: new ol.style.Fill({
+                color: 'rgba(255, 255, 255, 0.85)'
+                }),
+                backgroundStroke: new ol.style.Stroke({
+                color: 'rgba(0, 0, 0, 0.4)',
+                width: 1,
+                lineCap: 'round',
+                lineJoin: 'round'
+                })
+            })
+            }));
+        
+        labels.push(label);
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+
+  // Add features to map
+  const vectorLayer = new ol.layer.Vector({
+    source: new ol.source.Vector({
+      features: features.concat(lines).concat(labels)
+    })
+  });
+  map.addLayer(vectorLayer);
+  
+  // Fit map to features with minimum zoom
+    if (features.length > 0) {
+    var extent = vectorLayer.getSource().getExtent();
+    
+    // Get the current view
+    var view = map.getView();
+    
+    // Fit to extent with padding
+    view.fit(extent, {
+        padding: [100, 100, 100, 100],  // Increased padding
+        minResolution: 0.1,  // Ensures we don't zoom in too far
+        maxZoom: 19,  // Allow higher zoom for close nodes
+        duration: 500  // Smooth animation
+    });
+
+    // If nodes are very close, ensure minimum zoom level
+    var resolution = view.getResolution();
+    if (resolution < 0.1) {  // If zoomed in too far
+        view.setResolution(0.1);  // Set minimum resolution
+        view.setCenter(ol.extent.getCenter(extent));  // Center on the features
+    }
+    }
+  
+  // Add popup for node info
+  var container = document.createElement('div');
+  container.className = 'ol-popup';
+  var content = document.createElement('div');
+  container.appendChild(content);
+  
+  var overlay = new ol.Overlay({
+    element: container,
+    autoPan: true,
+    autoPanAnimation: {
+      duration: 250
+    }
+  });
+  map.addOverlay(overlay);
+  
+  map.on('click', function(evt) {
+    var feature = map.forEachFeatureAtPixel(evt.pixel, function(feature) {
+        return feature;
+    });
+    
+    if (feature && feature.get('node')) {
+        var node = feature.get('node');
+        var coordinates = feature.getGeometry().getCoordinates();
+        
+        var html = '<div class="p-2">';
+        
+        // Add node name and link with full name
+        html += `<h6><a href="node_${node.id}.html">${node.longName} (${node.name})</a></h6>`;
+        
+        // Add node type and metrics
+        if (node.type === 'sender') {
+        html += '<span class="badge bg-danger">Sender</span><br>';
+        } else {
+        html += '<span class="badge bg-primary">Receiver</span><br>';
+        
+        // Add reception metrics for receivers
+        if (node.snr !== undefined) {
+            html += `<strong>SNR:</strong> ${node.snr} dB<br>`;
+        }
+        if (node.hops !== undefined) {
+            html += `<strong>Hops:</strong> ${node.hops}<br>`;
+        }
+        
+        // Calculate distance using stored coordinates
+        if (node.type === 'receiver') {
+            var senderFeature = features[0];
+            if (senderFeature) {
+            var senderNode = senderFeature.get('node');
+            var distance = calculateDistance(
+                senderNode.lat, senderNode.lon,
+                node.lat, node.lon
+            );
+            html += `<strong>Distance from Sender:</strong> ${distance} km<br>`;
+            }
+        }
+        }
+        
+        html += '</div>';
+        
+        content.innerHTML = html;
+        overlay.setPosition(coordinates);
+    } else {
+        overlay.setPosition(undefined);
+    }
+    });
+</script>
+
+<style>
+    #map {
+    height: 70vh;
+    width: 100%;
+    }
+    #legend {
+    position: absolute;
+    bottom: 20px;
+    right: 20px;
+    z-index: 1000;
+    }
+    .ol-popup {
+    position: absolute;
+    background-color: white;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+    padding: 0;  // Removed padding as it's now in the content div
+    border-radius: 10px;
+    border: 1px solid #cccccc;
+    bottom: 12px;
+    left: -50px;
+    min-width: 200px;
+    max-width: 300px;
+    }
+
+    // Add badge styling if not already present
+    .badge {
+    display: inline-block;
+    padding: 0.25em 0.4em;
+    font-size: 75%;
+    font-weight: 700;
+    line-height: 1;
+    text-align: center;
+    white-space: nowrap;
+    vertical-align: baseline;
+    border-radius: 0.25rem;
+    margin-bottom: 0.5rem;
+    }
+    .bg-danger {
+    background-color: #dc3545;
+    color: white;
+    }
+    .bg-primary {
+    background-color: #0d6efd;
+    color: white;
+    }
+</style>
+{% endblock %}

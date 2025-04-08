@@ -75,10 +75,10 @@
       {% endif %}
       <div class="w-100 mt-2 text-center fw-bold p-2" style="background: #D7F9FF;">Elsewhere</div>
       <div>
-        <a href="https://meshview.zr1rf.za.net/packet_list/{{ node.id }}"
-          target="_blank">Armooo's MeshView</a><br />
-        <a href="https://meshtastic.liamcottle.net/?node_id={{ node.id }}"
-          target="_blank">Liam's Map</a><br />
+        <!-- <a href="https://meshview.zr1rf.za.net/packet_list/{{ node.id }}"
+          target="_blank">Armooo's MeshView</a><br /> -->
+        <a href="https://meshtastic.davekeogh.com/?node_id={{ node.id }}"
+          target="_blank">PugetMesh Map</a><br />
         <a href="https://meshmap.net/#{{ node.id }}" target="_blank">MeshMap</a>
       </div>
     </div>
@@ -227,7 +227,7 @@
             <th scope="row" style="background: #F2F6F9; text-align: left;">First Seen</th>
             <td class="text-left">
               {% if node.ts_created %}
-              {{ datetime.fromtimestamp(node["ts_created"]).strftime('%Y-%m-%d %H:%M:%S') }}
+              {{ format_timestamp(node.ts_created) }}
               {% else %}
               Unknown
               {% endif %}
@@ -237,7 +237,7 @@
             <th scope="row" style="background: #F2F6F9; text-align: left;">Last Seen</th>
             <td class="text-left">
               {% if node.ts_seen %}
-              {{ datetime.fromtimestamp(node["ts_seen"]).strftime('%Y-%m-%d %H:%M:%S') }}
+              {{ format_timestamp(node.ts_seen) }} ({{ time_ago(node.ts_seen) }})
               {% else %}
               Unknown
               {% endif %}
@@ -275,69 +275,190 @@
       <table class="table table-striped table-sm">
         <thead>
           <tr>
-            <th colspan="3" scope="col">Heard (zero hop)</th>
+            <th colspan="4" scope="col">Heard (zero hop)</th>
+          </tr>
+          <tr>
+            <th scope="col">Node</th>
+            <th scope="col">Signal</th>
+            <th scope="col">Distance</th>
+            <th scope="col">Source</th>
           </tr>
         </thead>
         <tbody>
+          {% set processed_nodes = [] %}
+          
+          <!-- Process neighbor data first -->
           {% for neighbor in node.neighbors %}
-          {% set nid = utils.convert_node_id_from_int_to_hex(neighbor.neighbor_id) %}
-          {% set nnode = nodes[nid] if nid in nodes else None %}
-          <tr>
-            <td scope="col">
-              {% if nnode %}
-              <a href="node_{{ nid }}.html">{{ nnode.short_name }}</a>
-              {% else %}
-              <span class="text-secondary">UNK</span>
-              {% endif %}
-            </td>
-            <td scope="col">
-              SNR: {{ neighbor.snr }}
-            </td>
-            <td scope="col">
-              {% if nnode %}
-              {% set dist = utils.calculate_distance_between_nodes(nnode, node) %}
-              {% if dist %}
-              {{ dist }} km
-              {% endif %}
-              {% endif %}
-            </td>
-          </tr>
+            {% set nid = utils.convert_node_id_from_int_to_hex(neighbor.neighbor_id) %}
+            {% set nnode = nodes[nid] if nid in nodes else None %}
+            {% if nid not in processed_nodes %}
+              {% set processed_nodes = processed_nodes + [nid] %}
+              <tr>
+                <td>
+                  {% if nnode %}
+                  <a href="node_{{ nid }}.html">{{ nnode.short_name }}</a>
+                  {% else %}
+                  <span class="text-secondary">UNK</span>
+                  {% endif %}
+                </td>
+                <td>
+                  SNR: {{ neighbor.snr }}
+                </td>
+                <td>
+                  {% if nid in nodes %}
+                  {% set dist = utils.calculate_distance_between_nodes(nodes[nid], node) %}
+                  {% if dist %}
+                    {% if nodes[nid].position and nodes[nid].position.latitude_i and nodes[nid].position.longitude_i and node.position and node.position.latitude_i and node.position.longitude_i %}
+                      <a href="https://heywhatsthat.com/profiler.html?show_grade=0&show_rise=0&include_grade=1&decimal_places=0&elev_source=0&ll1={{ node.position.latitude_i / 1e7 }},{{ node.position.longitude_i / 1e7 }}&ll2={{ nodes[nid].position.latitude_i / 1e7 }},{{ nodes[nid].position.longitude_i / 1e7 }}" 
+                        target="_blank" 
+                        title="View elevation profile">
+                        {{ dist }} km 🏔️
+                      </a>
+                    {% else %}
+                      {{ dist }} km
+                    {% endif %}
+                  {% endif %}
+                  {% endif %}
+                </td>
+                <td><span title="Neighbor data">N</span></td>
+              </tr>
+            {% endif %}
           {% endfor %}
+          
+          <!-- Process message reception data -->
+          {% if zero_hop_heard %}
+            {% for heard in zero_hop_heard %}
+              {% set nid = utils.convert_node_id_from_int_to_hex(heard.from_id) %}
+              {% if nid not in processed_nodes %}
+                {% set processed_nodes = processed_nodes + [nid] %}
+                <tr>
+                  <td>
+                    {% if nid in nodes %}
+                    <a href="node_{{ nid }}.html">{{ nodes[nid].short_name }}</a>
+                    {% else %}
+                    <span class="text-secondary">UNK</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    SNR: {{ heard.best_snr }} max / {{ heard.avg_snr|round(1) }} avg
+                  </td>
+                  <td>
+                    {% if nid in nodes %}
+                    {% set dist = utils.calculate_distance_between_nodes(nodes[nid], node) %}
+                    {% if dist %}
+                      {% if nodes[nid].position and nodes[nid].position.latitude_i and nodes[nid].position.longitude_i and node.position and node.position.latitude_i and node.position.longitude_i %}
+                        <a href="https://heywhatsthat.com/profiler.html?show_grade=0&show_rise=0&include_grade=1&decimal_places=0&elev_source=0&ll1={{ node.position.latitude_i / 1e7 }},{{ node.position.longitude_i / 1e7 }}&ll2={{ nodes[nid].position.latitude_i / 1e7 }},{{ nodes[nid].position.longitude_i / 1e7 }}" 
+                          target="_blank" 
+                          title="View elevation profile">
+                          {{ dist }} km 🏔️
+                        </a>
+                      {% else %}
+                        {{ dist }} km
+                      {% endif %}
+                    {% endif %}
+                    {% endif %}
+                  </td>
+                  <td><span title="Message data">M</span> ({{ heard.count }}) <small title="Last heard at {{ format_timestamp(heard.last_rx_time) }}">{{ time_ago(heard.last_rx_time) }}</small></td>
+                </tr>
+              {% endif %}
+            {% endfor %}
+          {% endif %}
         </tbody>
       </table>
+
       <table class="table table-striped table-sm">
         <thead>
           <tr>
-            <th colspan="3" scope="col">Heard By (zero hop)</th>
+            <th colspan="4" scope="col">Heard By (zero hop)</th>
+          </tr>
+          <tr>
+            <th scope="col">Node</th>
+            <th scope="col">Signal</th>
+            <th scope="col">Distance</th>
+            <th scope="col">Source</th>
           </tr>
         </thead>
         <tbody>
+          {% set processed_nodes = [] %}
+          
+          <!-- Process neighbor data first -->
           {% for id, nnode in nodes.items() %}
-          {% if nnode.neighbors %}
-          {% for neighbor in nnode.neighbors %}
-          {% if neighbor.neighbor_id == node.id %}
-          <tr>
-            <td scope="col">
-              {% if id in nodes %}
-              <a href="node_{{ id }}.html">{{ nodes[id].short_name }}</a>
-              {% else %}
-              <span class="text-secondary">UNK</span>
-              {% endif %}
-            </td>
-            <td scope="col">
-              SNR: {{ neighbor.snr }}
-            </td>
-            <td scope="col">
-              {% set dist = utils.calculate_distance_between_nodes(nodes[id], node) %}
-              {% if dist %}
-              {{ dist }} km
-              {% endif %}
-            </td>
-          </tr>
-          {% endif %}
+            {% if nnode.neighbors %}
+              {% for neighbor in nnode.neighbors %}
+                {% if neighbor.neighbor_id == node.id and id not in processed_nodes %}
+                  {% set processed_nodes = processed_nodes + [id] %}
+                  <tr>
+                    <td>
+                      {% if id in nodes %}
+                      <a href="node_{{ id }}.html">{{ nodes[id].short_name }}</a>
+                      {% else %}
+                      <span class="text-secondary">UNK</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      SNR: {{ neighbor.snr }}
+                    </td>
+                    <td>
+                      {% if nid in nodes %}
+                      {% set dist = utils.calculate_distance_between_nodes(nodes[nid], node) %}
+                      {% if dist %}
+                        {% if nodes[nid].position and nodes[nid].position.latitude_i and nodes[nid].position.longitude_i and node.position and node.position.latitude_i and node.position.longitude_i %}
+                          <a href="https://heywhatsthat.com/profiler.html?show_grade=0&show_rise=0&include_grade=1&decimal_places=0&elev_source=0&ll1={{ node.position.latitude_i / 1e7 }},{{ node.position.longitude_i / 1e7 }}&ll2={{ nodes[nid].position.latitude_i / 1e7 }},{{ nodes[nid].position.longitude_i / 1e7 }}" 
+                            target="_blank" 
+                            title="View elevation profile">
+                            {{ dist }} km 🏔️
+                          </a>
+                        {% else %}
+                          {{ dist }} km
+                        {% endif %}
+                      {% endif %}
+                      {% endif %}
+                    </td>
+                    <td><span title="Neighbor data">N</span></td>
+                  </tr>
+                {% endif %}
+              {% endfor %}
+            {% endif %}
           {% endfor %}
+          
+          <!-- Process message reception data -->
+          {% if zero_hop_heard_by %}
+            {% for heard in zero_hop_heard_by %}
+              {% set nid = utils.convert_node_id_from_int_to_hex(heard.received_by_id) %}
+              {% if nid not in processed_nodes %}
+                {% set processed_nodes = processed_nodes + [nid] %}
+                <tr>
+                  <td>
+                    {% if nid in nodes %}
+                    <a href="node_{{ nid }}.html">{{ nodes[nid].short_name }}</a>
+                    {% else %}
+                    <span class="text-secondary">UNK</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    SNR: {{ heard.best_snr }} max / {{ heard.avg_snr|round(1) }} avg
+                  </td>
+                  <td>
+                    {% if nid in nodes %}
+                    {% set dist = utils.calculate_distance_between_nodes(nodes[nid], node) %}
+                    {% if dist %}
+                      {% if nodes[nid].position and nodes[nid].position.latitude_i and nodes[nid].position.longitude_i and node.position and node.position.latitude_i and node.position.longitude_i %}
+                        <a href="https://heywhatsthat.com/profiler.html?show_grade=0&show_rise=0&include_grade=1&decimal_places=0&elev_source=0&ll1={{ node.position.latitude_i / 1e7 }},{{ node.position.longitude_i / 1e7 }}&ll2={{ nodes[nid].position.latitude_i / 1e7 }},{{ nodes[nid].position.longitude_i / 1e7 }}" 
+                          target="_blank" 
+                          title="View elevation profile">
+                          {{ dist }} km 🏔️
+                        </a>
+                      {% else %}
+                        {{ dist }} km
+                      {% endif %}
+                    {% endif %}
+                    {% endif %}
+                  </td>
+                  <td><span title="Message data">M</span> <span title="Number of messages received">({{ heard.count }})</span> <small title="Last heard at {{ format_timestamp(heard.last_rx_time) }}">{{ time_ago(heard.last_rx_time) }}</small></td>
+                </tr>
+              {% endif %}
+            {% endfor %}
           {% endif %}
-          {% endfor %}
         </tbody>
       </table>
     </div>

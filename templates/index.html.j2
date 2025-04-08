@@ -4,14 +4,135 @@
 
 {% block content %}
 <div class="container pt-3">
-  <img src="/images/logo.png" alt="logo" style="height: 250px">
-  <h2>{{ config["mesh"]["name"] }}</h2>
-  <p>
-    This site provides information on <a href="nodes.html"><span class="font-weight-bold">{{ active_nodes|length }}</span> active nodes</a> in the South African Meshtastic network.
-  </p>
-  <p>
-  Check out the '<a href="https://gadgeteer.co.za/hamradio/meshtastic-in-south-africa/">Meshtastic in South Africa</a>' blog post from GadgeteerZA for more information, or join our <a href="https://bit.ly/buildthemesh">Discord</a> community.
-  </p>
-  <p>Last updated: {{ timestamp.strftime('%Y-%m-%d %H:%M:%S %z') }}</p>
+  <div class="row">
+    <div class="col-md-12 text-center mb-4">
+      <img src="/images/logo.png" alt="logo" style="height: 250px">
+      <h2>{{ config["mesh"]["name"] }}</h2>
+      <p>
+        This site provides information on <a href="nodes.html"><span class="font-weight-bold">{{ active_nodes|length }}</span> active nodes</a> in the Puget Sound Meshtastic network.
+      </p>
+      <p>Last updated: {{ format_timestamp(timestamp.timestamp()) }}</p>
+    </div>
+  </div>
+  
+  <div class="row">
+    <div class="col-md-12">
+      <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+          <h3 class="mb-0">About MeshInfo</h3>
+        </div>
+        <div class="card-body">
+          <p>
+            MeshInfo is a web-based tool which collects and visualizes data from <a href="https://meshtastic.org">Meshtastic</a> nodes across the Puget Sound region. It provides visibility into our <a href="https://pugetmesh.org/">PugetMesh community mesh network</a>, helping both new and experienced members understand network coverage, identify growth opportunities, and troubleshoot connectivity issues.
+          </p>
+          <p>
+            Through MeshInfo, you can view node locations on maps, check detailed node information including telemetry data, visualize node connections, and search for specific nodes by ID or name.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col-md-12">
+      <div class="card mb-4">
+        <div class="card-header bg-success text-white">
+          <h3 class="mb-0">How to Configure Your Node for MeshInfo</h3>
+        </div>
+        <div class="card-body">
+          <p>
+            Your node may still show up in other users MQTT messages without any additional configuration. However, if you wish to share what your node is hearing on the Meshtastic LoRa network so it appears in MeshInfo, configure these key settings:
+          </p>
+          
+          <h4 class="mt-3">Basic Configuration:</h4>
+          <ul class="list-group mb-4">
+            <li class="list-group-item">
+              <strong>Enable "OK to MQTT":</strong> Navigate to <span class="text-danger">Settings > LoRa</span> and set <span class="text-danger">"OK to MQTT"</span> to <span class="text-danger">TRUE</span>. This allows your node information to be shared with the MQTT server by other nodes on the mesh.
+            </li>
+            <li class="list-group-item">
+              <strong>Enable Position Sharing (optional but recommended):</strong> Go to <span class="text-danger">Settings > Channels > LongFast</span> and set <span class="text-danger">"Position Enabled"</span> to <span class="text-danger">TRUE</span>. Set <span class="text-danger">"Uplink Enabled"</span> to <span class="text-danger">TRUE</span>. This allows your node's position and recieved messages to be shared with other nodes and the MQTT server.
+            </li>
+            <li class="list-group-item">
+              <strong>Set Position Precision:</strong> Set position precision slider to <span class="text-danger">1194ft (364m)</span>. This is the most accurate setting that will still show up on maps. You can use higher precision (lower distance values), but they will be rounded to this level for privacy reasons. Settings with lower precision (larger distances) will appear as configured.
+            </li>
+            <li class="list-group-item">
+              <strong>Configure Your Position:</strong> Either use GPS (if your device has one) or set a fixed position via <span class="text-danger">Settings > Position</span>.
+            </li>
+          </ul>
+          <p><strong>Note:</strong> Your node will still appear in MeshInfo without location data, but distance and direction information to other nodes won't be available.</p>
+
+          <h4>PugetMesh MQTT Connection (recommended):</h4>
+          <p><strong>Important:</strong> Users who don't connect directly to the <a href="https://pugetmesh.org/meshtastic/#mqtt-and-maps">PugetMesh MQTT server</a> won't be sharing information with other users in the region. Connecting your node to our MQTT server allows your data to contribute to the regional mesh network and helps everyone better understand network coverage.</p>
+          </p> To connect your node directly to the PugetMesh MQTT server, configure these settings in <span class="text-danger">Settings > Modules > MQTT</span>:</p>
+          
+          <ul class="list-group mb-4">
+            <li class="list-group-item">
+              <strong>Address:</strong> <code>mqtt.davekeogh.com</code>
+            </li>
+            <li class="list-group-item">
+              <strong>Username:</strong> <code>meshdev</code>
+            </li>
+            <li class="list-group-item">
+              <strong>Password:</strong> <code>large4cats</code>
+            </li>
+            <li class="list-group-item">
+              <strong>Encryption Enabled:</strong> Yes
+            </li>
+            <li class="list-group-item">
+              <strong>JSON Output:</strong> No
+            </li>
+            <li class="list-group-item">
+              <strong>TLS Enabled:</strong> No
+            </li>
+            <li class="list-group-item">
+              <strong>Root topic:</strong> <code>msh/US</code>
+            </li>
+          </ul>
+
+          <h4>Enable Neighbor Info Module:</h4>
+          <p>The <a href="https://meshtastic.org/docs/configuration/module/neighbor-info/">Neighbor Info Module</a> enhances the value of MeshInfo by sharing information about your node's direct connections:</p>
+          
+          <ul class="list-group mb-4">
+            <li class="list-group-item">
+              <strong>Enable the Module:</strong> Go to <span class="text-danger">Settings > Modules > Neighbor Info</span> and enable the module.
+            </li>
+            <li class="list-group-item">
+              <strong>Set Update Interval:</strong> The minimum allowed is 4 hours (14400 seconds). Default is 6 hours (21600 seconds).
+            </li>
+            <li class="list-group-item">
+              <strong>Configure MQTT Transmission:</strong> By default, neighbor info will only be sent to MQTT and connected apps. For best results with MeshInfo, ensure your node is either directly connected to MQTT or heard by another node that uploads to MQTT.
+            </li>
+            <li class="list-group-item">
+              <strong>Benefits:</strong> When enabled across multiple nodes, this helps build a comprehensive graph of the mesh network, showing how nodes are connected and the quality of links between them (displayed as SNR values).
+            </li>
+          </ul>
+          
+          <p>
+            For complete setup instructions, visit the PugetMesh configuration page:
+          </p>
+          <a href="https://pugetmesh.org/meshtastic/config/#get-on-the-map" class="btn btn-primary">View Full Configuration Guide</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col-md-12">
+      <div class="card">
+        <div class="card-header bg-warning">
+          <h3 class="mb-0">Join the PugetMesh Community</h3>
+        </div>
+        <div class="card-body">
+          <p>
+            PugetMesh is a volunteer-driven group supporting mesh networks in the Puget Sound region. We focus on building a resilient off-grid communication network using Meshtastic technology.
+          </p>
+          <div class="text-center">
+            <a href="https://discord.gg/ANvUg3AyZt" class="btn btn-secondary mr-2">Join Our Discord</a>
+            <a href="https://pugetmesh.org/" class="btn btn-secondary">Visit PugetMesh.org</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 {% endblock %}

@@ -1,0 +1,204 @@
+{% set this_page = "chat" %}
+{% extends "layout.html.j2" %}
+
+{% block title %}Chat | MeshInfo{% endblock %}
+
+{% block head %}
+<script>
+// Function to initialize popovers
+function initializePopovers() {
+    if (typeof jQuery !== 'undefined') {
+        // Only initialize popovers on desktop
+        if (window.innerWidth > 768) {
+            $('[data-toggle="popover"]').popover({
+                html: true,
+                trigger: 'hover',
+                placement: 'bottom',
+                container: 'body',
+                delay: { show: 50, hide: 100 }
+            });
+        } else {
+            // Destroy any existing popovers on mobile
+            $('[data-toggle="popover"]').popover('dispose');
+        }
+    }
+}
+
+// Initialize on DOM content loaded
+document.addEventListener('DOMContentLoaded', initializePopovers);
+
+// Re-initialize on window resize
+let resizeTimer;
+window.addEventListener('resize', function() {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function() {
+        $('[data-toggle="popover"]').popover('dispose');
+        initializePopovers();
+    }, 250);
+});
+
+// Backup initialization if jQuery loads late
+window.addEventListener('load', function() {
+    if (typeof jQuery !== 'undefined' && !$('[data-toggle="popover"]').data('bs.popover')) {
+        initializePopovers();
+    }
+});
+</script>
+{% endblock %}
+
+{% block content %}
+<div class="chat-container">
+    <div class="chat-header">
+        <h5>🗨️ Chat</h5>
+        <div class="d-flex align-items-center gap-3">
+            <div class="text-muted" style="margin-right: 1em;">
+                Showing {{ pagination.start_item }} to {{ pagination.end_item }} of {{ pagination.total }} messages
+            </div>
+            <div class="btn-group">
+                {% if pagination.has_prev %}
+                <a href="?page={{ pagination.prev_num }}" class="btn btn-outline-secondary btn-sm" title="Previous page">
+                    <i class="bi bi-arrow-left"></i>
+                </a>
+                {% else %}
+                <button class="btn btn-outline-secondary btn-sm" disabled title="Previous page">
+                    <i class="bi bi-arrow-left"></i>
+                </button>
+                {% endif %}
+
+                {% if pagination.has_next %}
+                <a href="?page={{ pagination.next_num }}" class="btn btn-outline-secondary btn-sm" title="Next page">
+                    <i class="bi bi-arrow-right"></i>
+                </a>
+                {% else %}
+                <button class="btn btn-outline-secondary btn-sm" disabled title="Next page">
+                    <i class="bi bi-arrow-right"></i>
+                </button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="chat-messages">
+        {% for message in chat %}
+        <div class="message-container">
+            <div class="message-bubble">
+                <div class="message-header">
+                    <span class="message-sender">
+                        {% if message.from in nodes %}
+                            <a href="/node_{{ message.from }}.html" 
+                            class="node-link"
+                            data-toggle="popover"
+                            data-content="<div class='receiver-popover'>
+                                <strong>{{ nodes[message.from].long_name }}</strong><br>
+                                {% if nodes[message.from].description %}
+                                {{ nodes[message.from].description }}<br>
+                                {% endif %}
+                                {% if nodes[message.from].position and nodes[message.from].position.latitude is not none and nodes[message.from].position.longitude is not none %}
+                                Lat: {{ '%.5f'|format(nodes[message.from].position.latitude) }}<br>
+                                Lon: {{ '%.5f'|format(nodes[message.from].position.longitude) }}<br>
+                                {% if nodes[message.from].position.altitude is not none %}
+                                Alt: {{ nodes[message.from].position.altitude }}m<br>
+                                {% endif %}
+                                {% endif %}
+                                {% if nodes[message.from].owner %}
+                                Owner: {{ nodes[message.from].owner }}
+                                {% endif %}">
+                                {{ nodes[message.from].long_name }} ({{ nodes[message.from].short_name }})
+                            </a>
+                        {% else %}
+                            {{ message.from }}
+                        {% endif %}
+                    </span>
+                    <span class="message-channel">Ch {{ message.channel }}</span>
+                    <span class="message-timestamp" title="{{ format_timestamp(message.ts_created) }}">
+                        {{ time_ago(message.ts_created) }}
+                    </span>
+                    {% if message.from in nodes and nodes[message.from].position and message.receptions %}
+                    <a href="/message_map.html?id={{ message.message_id }}" 
+                       class="map-link" 
+                       title="View Message Propagation">
+                        <i class="bi bi-map"></i>
+                    </a>
+                    {% else %}
+                    <span class="map-link-placeholder"></span>
+                    {% endif %}
+                </div>
+                <div class="message-content">
+                    {{ message.text }}
+                </div>
+                {% if message.receptions %}
+                <div class="message-receptions">
+                    <!-- Desktop View (existing) -->
+                    <div class="desktop-receptions">
+                        {% for reception in message.receptions %}
+                            {% set node_id = utils.convert_node_id_from_int_to_hex(reception.node_id) %}
+                            {% if node_id in nodes %}
+                            {% set node = nodes[node_id] %}
+                            <a href="/node_{{ node_id }}.html" 
+                            class="reception-badge {% if reception.rx_snr > 0 %}snr-good{% elif reception.rx_snr > -5 %}snr-adequate{% elif reception.rx_snr > -10 %}snr-poor{% else %}snr-very-poor{% endif %}"
+                            data-toggle="popover"
+                            data-content="<div class='receiver-popover'>
+                                <strong>{{ node.long_name }}</strong><br>
+                                SNR: {{ '%.1f'|format(reception.rx_snr) }}dB<br>
+                                RSSI: {{ reception.rx_rssi }}dBm
+                                {% if reception.hop_start is not none and reception.hop_limit is not none %}
+                                <br>Hops: {{ reception.hop_start - reception.hop_limit }} of {{ reception.hop_start }}
+                                {% endif %}
+                                </div>">
+                                <span class="snr-indicator"></span>
+                                {{ node.short_name }}
+                            </a>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+                    
+                    <!-- Mobile View (new) -->
+                    <div class="mobile-receptions">
+                        {% for reception in message.receptions %}
+                            {% set node_id = utils.convert_node_id_from_int_to_hex(reception.node_id) %}
+                            {% if node_id in nodes %}
+                            {% set node = nodes[node_id] %}
+                            <div class="mobile-reception-row">
+                                <div class="mobile-node-name">
+                                    <a href="/node_{{ node_id }}.html">{{ node.long_name }}</a>
+                                </div>
+                                <div class="mobile-metrics">
+                                    <div class="metric snr {% if reception.rx_snr > 0 %}snr-good{% elif reception.rx_snr > -5 %}snr-adequate{% elif reception.rx_snr > -10 %}snr-poor{% else %}snr-very-poor{% endif %}">
+                                        <span class="snr-indicator"></span>
+                                        <span>SNR: {{ '%.1f'|format(reception.rx_snr) }}dB</span>
+                                    </div>
+                                    <div class="metric rssi">
+                                        <span>RSSI: {{ reception.rx_rssi }}dBm</span>
+                                    </div>
+                                    {% if reception.hop_start is not none and reception.hop_limit is not none %}
+                                    <div class="metric hops">
+                                        <span>Hops: {{ reception.hop_start - reception.hop_limit }}/{{ reception.hop_start }}</span>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    {% if pagination.has_next %}
+    <div class="load-more">
+        <button type="button" id="loadOlderMessages" onclick="window.location.href='?page={{ pagination.next_num }}'">
+            Load older messages
+        </button>
+    </div>
+    {% else %}
+    <div class="load-more">
+        <button type="button" id="loadOlderMessages" class="btn" disabled>
+            No more messages to load
+        </button>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

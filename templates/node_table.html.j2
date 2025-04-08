@@ -163,7 +163,7 @@
           <td scope="col"></td>
           <td scope="col"></td>
           {% endif %}
-          <td scope="col">{{ utils.time_since(node.ts_seen) }}</td>
+          <td scope="col">{{ time_ago(node.ts_seen) }}</td>
           <td>
             {% if node.owner_username %}
             <a href="user_{{ node.owner_username }}.html">{{ node.owner_username }}</a>

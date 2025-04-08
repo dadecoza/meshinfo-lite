@@ -8,7 +8,7 @@
 <h5>{{ this_page }}</h5>
 <div class="p-2 mb-3" style="background-color: #C3E0DC;">
   <p><span style="font-weight: bold;">#MeshtasticMonday</span> is a weekly event designed to encourage
-      activity on the South African Meshtastic mesh network.</p>
+      activity on the Puget Sound Meshtastic mesh network.</p>
 
   <p>To participate, ensure that "OK to MQTT" is enabled in your device's LoRa configuration, then simply
       send a message on the default LongFast channel containing the <span
@@ -41,7 +41,7 @@
       {% endif %}
       <tr>
         <td>{{ message.channel }}</td>
-        <td>{{ datetime.fromtimestamp(message.ts_created).strftime('%H:%M:%S') }}</td>
+        <td>{{ format_timestamp(message.ts_created, '%H:%M:%S') }}</td>
         {% if message["from"] in nodes %}
         <td>
           <a href="node_{{ message['from'] }}.html">{{ nodes[message["from"]].long_name+" (" + nodes[message["from"]].short_name + ")" }}</a><br>

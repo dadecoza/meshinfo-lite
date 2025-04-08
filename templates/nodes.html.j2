@@ -12,13 +12,8 @@
 </div>
 {% endif %}
 <div class="container pt-3">
-<h5>{{ this_page.title() }}</h5>
-<p>
-  There are <b>{{ nodes.values() | selectattr('active') | list | length }}</b> active out of a total of <b>{{ nodes|count }}</b>.
-</p>
-<p>
-  <a href="allnodes.html">Include inactive</a>
-</p>
-{% include 'node_table.html.j2' %}
+  <h5>{{ this_page.title() }}</h5>
+  {% include 'node_search.html.j2' %}
+  {% include 'node_table.html.j2' %}
 </div>
 {% endblock %}

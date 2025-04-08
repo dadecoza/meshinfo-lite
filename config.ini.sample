@@ -27,6 +27,8 @@ port=8000
 node_activity_prune_threshold=7200
 render_interval=15
 debug=true
+timezone=America/Los_Angeles
+zero_hop_timeout=43200
 
 [geocoding]
 enabled=false

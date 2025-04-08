@@ -49,7 +49,7 @@
       {% set inode = nodes[inodeid] %}
       <tr>
         <td>
-          {{ datetime.fromtimestamp(item.ts_created).strftime("%Y-%m-%d %H:%M:%S") }}
+          {{ format_timestamp(item.ts_created) }}
         </td>
         <td>
           {% if inode %}

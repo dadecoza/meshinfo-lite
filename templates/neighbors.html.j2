@@ -6,30 +6,49 @@
 {% block content %}
 <div class="container pt-3">
   <h5>{{ this_page.title() }}</h5>
+  
+  <div class="btn-group mb-3" role="group" aria-label="View type">
+    <a href="{{ url_for('neighbors', view='neighbor_info') }}" 
+       class="btn btn-{{ 'primary' if view_type == 'neighbor_info' else 'outline-primary' }}">
+      Neighbor Info
+    </a>
+    <a href="{{ url_for('neighbors', view='zero_hop') }}" 
+       class="btn btn-{{ 'primary' if view_type == 'zero_hop' else 'outline-primary' }}">
+      Zero Hop
+    </a>
+    <a href="{{ url_for('neighbors', view='merged') }}" 
+       class="btn btn-{{ 'primary' if view_type == 'merged' else 'outline-primary' }}">
+      Merged
+    </a>
+  </div>
+  
   <p>
-    There are <b>{{ active_nodes_with_neighbors|count }}</b> active nodes with neighbors.
+    There are <b>{{ active_nodes_with_connections|count }}</b> active nodes with connections.<br/>
+    <span class="badge bg-neighbor">N</span> indicates connections reported via <a href="https://meshtastic.org/docs/configuration/module/neighbor-info/">Neighbor Info module</a> messages.<br/>
+    <span class="badge bg-message">M</span> indicates connections detected via LoRa message reception.
   </p>
+
   <div class="table-responsive">
     <table class="table table-striped table-bordered table-sm">
       <thead>
         <tr>
           <th scope="col">ID</th>
           <th scope="col" colspan=2>Name</th>
-          <th scope="col" colspan=3>Neighbors</th>
-          <th scope="col" colspan=2>Seen</th>
+          <th scope="col">Heard</th>
+          <th scope="col">Heard By</th>
+          <th scope="col">Seen</th>
         </tr>
         <tr>
           <th scope="col"></th>
           <th scope="col">Short</th>
           <th scope="col">Long</th>
-          <th scope="col">Heard</th>
-          <th scope="col">Heard By</th>
-          <th scope="col">Last</th>
+          <th scope="col">This node heard</th>
+          <th scope="col">This node was heard by</th>
           <th scope="col">Since</th>
         </tr>
       </thead>
       <tbody>
-        {% for id, node in active_nodes_with_neighbors.items() %}
+        {% for id, node in active_nodes_with_connections.items() %}
         <tr>
           <td class="p-0" style="width:50px;">
             {% if id %}
@@ -38,87 +57,138 @@
               <img src="https://api.dicebear.com/9.x/bottts-neutral/svg?seed={{ id }}" alt="Avatar"
                 style="height: 50px; width: 50px;">
             </a>
-            {% else %}
-            <img src="https://api.dicebear.com/9.x/bottts-neutral/svg?seed={{ id }}" alt="Avatar"
-              class="w-16 h-16 mb-1 object-cover">
-            {{ id }}
             {% endif %}
           </td>
           <td style="color: #{{ '777' if node.short_name == 'UNK' else '000' }}">
-            {% if id %}
             <a href='node_{{ id }}.html'>{{ node.short_name }}</a>
-            {% else %}
-            <span class="text-gray-500">{{ node.short_name }}</span>
-            {% endif %}
           </td>
           <td style="color: #{{ '777' if node.short_name == 'UNK' else '000' }}">
             {{ node.long_name }}
           </td>
-          {% if node.neighbors %}
+          
+          {# Heard column - nodes this node heard #}
           <td>
-            <table style="border-style: hidden !important;">
-              {% for neighbor in node.neighbors %}
-              {% set nid = utils.convert_node_id_from_int_to_hex(neighbor.neighbor_id) %}
-              <tr style="background: none; border-style: hidden !important;">
-                <td style="border-style: hidden !important;">
-                  {% if nid in nodes %}
-                  <a href="node_{{ nid }}.html">{{ nodes[nid].short_name }}</a>
-                  {% else %}
-                  <span class="text-secondary">UNK</span>
-                  {% endif %}
-                </td>
-                <td style="border-style: hidden !important;">
-                  SNR: {{ neighbor.snr }}
-                </td>
-                <td style="border-style: hidden !important;">
-                  {% if neighbor.distance %}
-                  {{ neighbor.distance }} km
-                  {% endif %}
-                </td>
-              </tr>
-              {% endfor %}
+            <table class="neighbor-table">
+              {% if view_type in ['neighbor_info', 'merged'] and node.neighbors %}
+                {% for neighbor in node.neighbors %}
+                {% set nid = utils.convert_node_id_from_int_to_hex(neighbor.neighbor_id) %}
+                <tr>
+                  <td class="node-id">
+                    <span class="badge bg-neighbor">N</span>
+                    {% if nid in nodes %}
+                    <a href="node_{{ nid }}.html">{{ nodes[nid].short_name }}</a>
+                    {% else %}
+                    <span class="text-secondary">UNK</span>
+                    {% endif %}
+                  </td>
+                  <td class="snr-value">
+                    {{ snr_badge(neighbor.snr) }}
+                  </td>
+                  <td class="distance">
+                    {% if neighbor.distance %}
+                    {{ "%.2f"|format(neighbor.distance) }} km
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              {% endif %}
+              
+              {% if view_type in ['zero_hop', 'merged'] and node.zero_hop_neighbors %}
+                {% for neighbor in node.zero_hop_neighbors %}
+                {% set nid = utils.convert_node_id_from_int_to_hex(neighbor.neighbor_id) %}
+                <tr>
+                  <td class="node-id">
+                    <span class="badge bg-message">M</span>
+                    {% if nid in nodes %}
+                    <a href="node_{{ nid }}.html">{{ nodes[nid].short_name }}</a>
+                    {% else %}
+                    <span class="text-secondary">UNK</span>
+                    {% endif %}
+                  </td>
+                  <td class="snr-value">
+                    {{ snr_badge(neighbor.snr) }}
+                  </td>
+                  <td class="distance">
+                    {% if neighbor.distance %}
+                    {{ "%.2f"|format(neighbor.distance) }} km
+                    {% endif %}
+                  </td>
+                  <td class="message-count">
+                    ({{ neighbor.message_count }} msgs)
+                  </td>
+                </tr>
+                {% endfor %}
+              {% endif %}
             </table>
           </td>
+          
+          {# Heard By column - nodes that heard this node #}
           <td>
-            <table>
-              {% for nid, nnode in nodes.items() %}
-              {% if nnode.neighbors %}
-              {% for neighbor in nnode.neighbors %}
-              {% if utils.convert_node_id_from_int_to_hex(neighbor.neighbor_id) == id %}
-              <tr style="background: none;">
-                <td style="border-style: hidden !important;">
-                  {% if nid in nodes %}
-                  <a href="node_{{ nid }}.html">{{ nodes[nid].short_name }}</a>
-                  {% else %}
-                  <span class="text-secondary">UNK</span>
-                  {% endif %}
-                </td>
-                <td style="border-style: hidden !important;">
-                  SNR: {{ neighbor.snr }}
-                </td>
-                <td style="border-style: hidden !important;">
-                  {% set dist = utils.calculate_distance_between_nodes(nodes[nid], nodes[id]) %}
-                  {% if dist %}
-                  {{ dist }} km
-                  {% endif %}
-                </td>
-              </tr>
+            <table class="neighbor-table">
+              {% if view_type in ['neighbor_info', 'merged'] and node.heard_by_neighbors %}
+                {% for neighbor in node.heard_by_neighbors %}
+                {% set nid = utils.convert_node_id_from_int_to_hex(neighbor.neighbor_id) %}
+                <tr>
+                  <td class="node-id">
+                    <span class="badge bg-neighbor">N</span>
+                    {% if nid in nodes %}
+                    <a href="node_{{ nid }}.html">{{ nodes[nid].short_name }}</a>
+                    {% else %}
+                    <span class="text-secondary">UNK</span>
+                    {% endif %}
+                  </td>
+                  <td class="snr-value">
+                    {{ snr_badge(neighbor.snr) }}
+                  </td>
+                  <td class="distance">
+                    {% if neighbor.distance %}
+                    {{ "%.2f"|format(neighbor.distance) }} km
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
               {% endif %}
-              {% endfor %}
+              
+              {% if view_type in ['zero_hop', 'merged'] and node.heard_by_zero_hop %}
+                {% for neighbor in node.heard_by_zero_hop %}
+                {% set nid = utils.convert_node_id_from_int_to_hex(neighbor.neighbor_id) %}
+                <tr>
+                  <td class="node-id">
+                    <span class="badge bg-message">M</span>
+                    {% if nid in nodes %}
+                    <a href="node_{{ nid }}.html">{{ nodes[nid].short_name }}</a>
+                    {% else %}
+                    <span class="text-secondary">UNK</span>
+                    {% endif %}
+                  </td>
+                  <td class="snr-value">
+                    {{ snr_badge(neighbor.snr) }}
+                  </td>
+                  <td class="distance">
+                    {% if neighbor.distance %}
+                    {{ "%.2f"|format(neighbor.distance) }} km
+                    {% endif %}
+                  </td>
+                  <td class="message-count">
+                    ({{ neighbor.message_count }} msgs)
+                  </td>
+                </tr>
+                {% endfor %}
               {% endif %}
-              {% endfor %}
             </table>
           </td>
-          {% else %}
-          <td></td>
-          {% endif %}
-          <td>{{ datetime.fromtimestamp(node["ts_seen"]).strftime("%Y-%m-%d %H:%M:%S") }}</td>
-          <td>{{ node.last_seen }}</td>
+          
+          <td>
+            <span title="{{ format_timestamp(node.ts_seen) }}">
+              {{ time_ago(node.ts_seen) }}
+            </span>
+          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+</div>
   <br><br>
   <br><br>
   <a href='nodes.json'>Download JSON</a>

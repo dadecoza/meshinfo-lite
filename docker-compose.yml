@@ -12,7 +12,9 @@ services:
     networks:
       - backend
   meshinfo:
-    image: ghcr.io/dadecoza/meshinfo-lite:0.1.5-za
+    build:
+      context: .
+      dockerfile: Dockerfile
     depends_on:
       - mariadb
     volumes:
@@ -20,7 +22,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
     ports:
-      - 8000:8000
+      - 8001:8000
     networks:
       - backend
     restart: always
