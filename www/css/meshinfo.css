@@ -301,6 +301,7 @@ nav {
     background: rgba(0, 0, 0, 0.05);
     border-radius: 4px;
     white-space: nowrap;
+    margin-right: 0.5em;
 }
 
 .btn-group .btn {

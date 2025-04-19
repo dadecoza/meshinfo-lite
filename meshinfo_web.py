@@ -6,8 +6,10 @@ from flask import (
     make_response,
     redirect,
     url_for,
-    abort
+    abort,
+    g
 )
+from flask_caching import Cache
 from waitress import serve
 from paste.translogger import TransLogger
 import configparser
@@ -29,7 +31,38 @@ import re
 
 app = Flask(__name__)
 
-# Make timezone utilities available to templates
+cache_dir = os.path.join(os.path.dirname(__file__), 'runtime_cache')
+
+# Ensure the cache directory exists
+if not os.path.exists(cache_dir):
+    try:
+        os.makedirs(cache_dir)
+        logging.info(f"Created cache directory: {cache_dir}")
+    except OSError as e:
+        logging.error(f"Could not create cache directory {cache_dir}: {e}")
+        cache_dir = None # Indicate failure
+
+# Configure Flask-Caching
+cache_config = {
+    'CACHE_TYPE': 'SimpleCache', # Default fallback
+    'CACHE_DEFAULT_TIMEOUT': 300 # Default timeout 5 minutes
+}
+if cache_dir:
+    cache_config = {
+        'CACHE_TYPE': 'FileSystemCache',
+        'CACHE_DIR': cache_dir,
+        'CACHE_THRESHOLD': 1000,  # Max number of items (optional, adjust as needed)
+        'CACHE_DEFAULT_TIMEOUT': 60 # Keep your 60 second default timeout
+    }
+    logging.info(f"Using FileSystemCache with directory: {cache_dir}")
+else:
+    logging.warning("Falling back to SimpleCache due to directory creation issues.")
+
+
+# Initialize Cache with the chosen config
+cache = Cache(app, config=cache_config)
+
+# Make globals available to templates
 app.jinja_env.globals.update(convert_to_local=convert_to_local)
 app.jinja_env.globals.update(format_timestamp=format_timestamp)
 app.jinja_env.globals.update(time_ago=time_ago)
@@ -38,6 +71,32 @@ app.jinja_env.globals.update(max=max)
 
 config = configparser.ConfigParser()
 config.read("config.ini")
+
+
+# --- Add these MeshData Management functions ---
+def get_meshdata():
+    """Opens a new MeshData connection if there is none yet for the
+    current application context.
+    """
+    if 'meshdata' not in g:
+        try:
+            g.meshdata = MeshData()
+            logging.debug("MeshData instance created for request context.")
+        except Exception as e:
+            logging.error(f"Failed to create MeshData for request context: {e}")
+            # Indicate failure
+            g.meshdata = None
+    return g.meshdata
+
+@app.teardown_appcontext
+def teardown_meshdata(exception):
+    """Closes the MeshData connection at the end of the request."""
+    md = g.pop('meshdata', None)
+    if md is not None:
+        # MeshData.__del__ should handle closing connection if implemented
+        # Add explicit md.db.close() if __del__ doesn't or isn't reliable
+        logging.debug("MeshData instance removed from request context.")
+# --- End MeshData Management functions ---
 
 
 def auth():
@@ -60,8 +119,11 @@ def not_found(e):
 
 # Serve static files from the root directory
 @app.route('/')
+@cache.cached(timeout=60)  # Cache for 60 seconds
 def serve_index(success_message=None, error_message=None):
-    md = MeshData()
+    md = get_meshdata()
+    if not md: # Check if MeshData failed to initialize
+        abort(503, description="Database connection unavailable")
     nodes = md.get_nodes()
     return render_template(
         "index.html.j2",
@@ -76,9 +138,13 @@ def serve_index(success_message=None, error_message=None):
 
 
 @app.route('/nodes.html')
+@cache.cached(timeout=60)  # Cache for 60 seconds
 def nodes():
-    md = MeshData()
+    md = get_meshdata()
+    if not md: # Check if MeshData failed to initialize
+        abort(503, description="Database connection unavailable")
     nodes = md.get_nodes()
+    logging.info(f"/nodes.html: Loaded {len(nodes)} nodes.") # Add this
     latest = md.get_latest_node()
     return render_template(
         "nodes.html.j2",
@@ -95,8 +161,11 @@ def nodes():
     )
 
 @app.route('/allnodes.html')
+@cache.cached(timeout=60)  # Cache for 60 seconds
 def allnodes():
-    md = MeshData()
+    md = get_meshdata()
+    if not md: # Check if MeshData failed to initialize
+        abort(503, description="Database connection unavailable")
     nodes = md.get_nodes()
     latest = md.get_latest_node()
     return render_template(
@@ -114,12 +183,14 @@ def allnodes():
     )
 
 
-@app.route('/chat.html')
+@app.route('/chat-classic.html')
 def chat():
     page = request.args.get('page', 1, type=int)
     per_page = 50
     
-    md = MeshData()
+    md = get_meshdata()
+    if not md: # Check if MeshData failed to initialize
+        abort(503, description="Database connection unavailable")
     nodes = md.get_nodes()
     chat_data = md.get_chat(page=page, per_page=per_page)
     
@@ -140,12 +211,14 @@ def chat():
         debug=False,
     )
 
-@app.route('/chat2.html')
+@app.route('/chat.html')
 def chat2():
     page = request.args.get('page', 1, type=int)
     per_page = 50
     
-    md = MeshData()
+    md = get_meshdata()
+    if not md: # Check if MeshData failed to initialize
+        abort(503, description="Database connection unavailable")
     nodes = md.get_nodes()
     chat_data = md.get_chat(page=page, per_page=per_page)
     
@@ -162,6 +235,7 @@ def chat2():
         utils=utils,
         datetime=datetime.datetime,
         timestamp=datetime.datetime.now(),
+        meshtastic_support=meshtastic_support,
         debug=False,
     )
 
@@ -170,60 +244,110 @@ def message_map():
     message_id = request.args.get('id')
     if not message_id:
         abort(404)
-        
-    md = MeshData()
-    nodes = md.get_nodes()
-    
-    # Get message and reception data
+
+    md = get_meshdata() # Use application context
+    if not md: abort(503, description="Database connection unavailable")
+
+    nodes = md.get_nodes() # Still get latest node info for names etc.
+
+    # Get message and basic reception data
     cursor = md.db.cursor(dictionary=True)
     cursor.execute("""
-        SELECT t.*, r.*
+        SELECT t.*, GROUP_CONCAT(r.received_by_id) as receiver_ids
         FROM text t
         LEFT JOIN message_reception r ON t.message_id = r.message_id
         WHERE t.message_id = %s
+        GROUP BY t.message_id
     """, (message_id,))
-    
-    message_data = cursor.fetchall()
-    if not message_data:
-        abort(404)
-        
-    # Process message data
-    message = {
-        'id': message_id,
-        'from_id': message_data[0]['from_id'],
-        'text': message_data[0]['text'],
-        'ts_created': message_data[0]['ts_created'],
-        'receptions': []
-    }
-    
-    # Only process receptions if they exist
-    for reception in message_data:
-        if reception['received_by_id'] is not None:  # Add this check
-            message['receptions'].append({
-                'node_id': reception['received_by_id'],
-                'rx_snr': reception['rx_snr'],
-                'rx_rssi': reception['rx_rssi'],
-                'hop_start': reception['hop_start'],
-                'hop_limit': reception['hop_limit'],
-                'rx_time': reception['rx_time']
-            })
-    
+
+    message_base = cursor.fetchone()
     cursor.close()
 
+    if not message_base:
+        abort(404)
+
+    # Get the precise message time (assuming ts_created is Unix timestamp)
+    message_time = message_base['ts_created'].timestamp() # Convert from DB datetime to Unix timestamp
+
+    # Fetch historical position for the sender
+    sender_position = md.get_position_at_time(message_base['from_id'], message_time)
+
+    # Fetch historical positions for receivers
+    receiver_positions = {}
+    receiver_details = {} # Store SNR etc. associated with the position
+    if message_base['receiver_ids']:
+        receiver_ids_list = [int(r_id) for r_id in message_base['receiver_ids'].split(',')]
+
+        # Fetch full reception details for these receivers for THIS message
+        # Need a separate query as GROUP_CONCAT loses details
+        query_placeholders = ', '.join(['%s'] * len(receiver_ids_list))
+        sql_reception = f"""
+            SELECT * FROM message_reception
+            WHERE message_id = %s AND received_by_id IN ({query_placeholders})
+        """
+        params_reception = [message_id] + receiver_ids_list
+        cursor = md.db.cursor(dictionary=True)
+        cursor.execute(sql_reception, params_reception)
+        receptions = cursor.fetchall()
+        cursor.close()
+
+        for reception in receptions: # Iterate through detailed reception info
+            receiver_id = reception['received_by_id']
+            logging.info(f"Attempting to find position for receiver: {receiver_id} at time {message_time}") # Log attempt
+            pos = md.get_position_at_time(receiver_id, message_time)
+            logging.info(f"Position found for receiver {receiver_id}: {pos}") # Log result
+            if pos: # Only store if position was actually found
+                receiver_positions[receiver_id] = pos
+                # Store details associated with this reception
+                receiver_details[receiver_id] = {
+                    'rx_snr': reception['rx_snr'],
+                    'rx_rssi': reception['rx_rssi'],
+                    'hop_start': reception['hop_start'],
+                    'hop_limit': reception['hop_limit'],
+                    'rx_time': reception['rx_time']
+                }
+            else:
+                logging.warning(f"No position found for receiver {receiver_id} near time {message_time}")
+
+
+    # Prepare message object for template
+    message = {
+        'id': message_id,
+        'from_id': message_base['from_id'],
+        'text': message_base['text'],
+        'ts_created': message_time, # Pass Unix timestamp
+        # Pass receiver IDs and their corresponding details
+        'receiver_ids': receiver_ids_list if message_base['receiver_ids'] else []
+    }
+
+
     # Check if sender has position data before rendering map
-    from_id = utils.convert_node_id_from_int_to_hex(message['from_id'])
-    if from_id not in nodes or not nodes[from_id].get('position'):
-        abort(404, description="Sender position data not available")
-    
+    if not sender_position:
+         # Decide how to handle - show map without sender? Show error?
+         # For now, let's allow rendering but template must handle missing sender pos
+         logging.warning(f"Sender position at time {message_time} not found for node {message['from_id']}")
+         # abort(404, description="Sender position data not available for message time")
+
+    # --- Add this logging ---
+    logging.debug(f"Data for message {message_id} map:")
+    logging.debug(f"  Sender Position: {sender_position}")
+    logging.debug(f"  Receiver Positions Dict: {receiver_positions}")
+    logging.debug(f"  Receiver Details Dict: {receiver_details}")
+    logging.debug(f"  Receiver IDs List: {message.get('receiver_ids', [])}")
+    # --- End logging ---
+
     return render_template(
         "message_map.html.j2",
         auth=auth(),
         config=config,
-        nodes=nodes,
+        nodes=nodes, # Pass current node info for names
         message=message,
+        sender_position=sender_position, # Pass historical sender position
+        receiver_positions=receiver_positions, # Pass dict of historical receiver positions
+        receiver_details=receiver_details, # Pass dict of receiver SNR/hop details
         utils=utils,
         datetime=datetime.datetime,
-        timestamp=datetime.datetime.now()
+        timestamp=datetime.datetime.now() # Page generation time
     )
 
 @app.route('/traceroute_map.html')
@@ -232,7 +356,9 @@ def traceroute_map():
     if not traceroute_id:
         abort(404)
         
-    md = MeshData()
+    md = get_meshdata()
+    if not md: # Check if MeshData failed to initialize
+        abort(503, description="Database connection unavailable")
     nodes = md.get_nodes()
     
     # Get traceroute data
@@ -294,25 +420,114 @@ def traceroute_map():
     )
 
 @app.route('/graph.html')
+@cache.cached(timeout=60, query_string=True) # Cache based on query string (view type)
 def graph():
-    md = MeshData()
-    nodes = md.get_nodes()
-    graph = md.graph_nodes()
+    view_type = request.args.get('view', 'merged') # Default to merged view
+    md = get_meshdata()
+    if not md:
+        abort(503, description="Database connection unavailable")
+
+    # Get graph data using the new method
+    graph_data = md.get_graph_data(view_type=view_type)
+
+    # Log graph data size for debugging
+    logging.debug(f"Graph data for view '{view_type}': {len(graph_data['nodes'])} nodes, {len(graph_data['edges'])} edges.")
+
     return render_template(
         "graph.html.j2",
         auth=auth(),
         config=config,
-        nodes=nodes,
-        graph=graph,
+        nodes=md.get_nodes(),  # Pass full nodes list for lookups in template
+        graph=graph_data,
+        view_type=view_type,
         utils=utils,
         datetime=datetime.datetime,
         timestamp=datetime.datetime.now(),
     )
 
+@app.route('/graph2.html')
+@cache.cached(timeout=60, query_string=True)  # Cache based on query string (view type)
+def graph2():
+    view_type = request.args.get('view', 'merged')  # Default to merged view
+    md = get_meshdata()
+    if not md:
+        abort(503, description="Database connection unavailable")
+
+    # Get graph data using the new method
+    graph_data = md.get_graph_data(view_type=view_type)
+
+    # Log graph data size for debugging
+    logging.debug(f"Graph data for view '{view_type}': {len(graph_data['nodes'])} nodes, {len(graph_data['edges'])} edges.")
+
+    return render_template(
+        "graph2.html.j2",
+        auth=auth(),
+        config=config,
+        nodes=md.get_nodes(),  # Pass full nodes list for lookups in template
+        graph=graph_data,
+        view_type=view_type,
+        utils=utils,
+        datetime=datetime.datetime,
+        timestamp=datetime.datetime.now(),
+    )
+
+@app.route('/graph3.html')
+@cache.cached(timeout=60, query_string=True)  # Cache based on query string (view type)
+def graph3():
+    view_type = request.args.get('view', 'merged')  # Default to merged view
+    md = get_meshdata()
+    if not md:
+        abort(503, description="Database connection unavailable")
+
+    # Get graph data using the new method
+    graph_data = md.get_graph_data(view_type=view_type)
+
+    # Log graph data size for debugging
+    logging.debug(f"Graph data for view '{view_type}': {len(graph_data['nodes'])} nodes, {len(graph_data['edges'])} edges.")
+
+    return render_template(
+        "graph3.html.j2",
+        auth=auth(),
+        config=config,
+        nodes=md.get_nodes(),  # Pass full nodes list for lookups in template
+        graph=graph_data,
+        view_type=view_type,
+        utils=utils,
+        datetime=datetime.datetime,
+        timestamp=datetime.datetime.now(),
+    )
+
+@app.route('/graph4.html')
+@cache.cached(timeout=60, query_string=True)  # Cache based on query string (view type)
+def graph4():
+    view_type = request.args.get('view', 'merged')  # Default to merged view
+    md = get_meshdata()
+    if not md:
+        abort(503, description="Database connection unavailable")
+
+    # Get graph data using the new method
+    graph_data = md.get_graph_data(view_type=view_type)
+
+    # Log graph data size for debugging
+    logging.debug(f"Graph data for view '{view_type}': {len(graph_data['nodes'])} nodes, {len(graph_data['edges'])} edges.")
+
+    return render_template(
+        "graph4.html.j2",
+        auth=auth(),
+        config=config,
+        nodes=md.get_nodes(),  # Pass full nodes list for lookups in template
+        graph=graph_data,
+        view_type=view_type,
+        utils=utils,
+        datetime=datetime.datetime,
+        timestamp=datetime.datetime.now(),
+    )
 
 @app.route('/map.html')
 def map():
-    md = MeshData()
+    md = get_meshdata()
+    if not md: # Check if MeshData failed to initialize
+        abort(503, description="Database connection unavailable")
     nodes = md.get_nodes()
     
     # Get timeout from config
@@ -391,182 +606,38 @@ def map():
 
 @app.route('/neighbors.html')
 def neighbors():
-    view_type = request.args.get('view', 'neighbor_info')
-    md = MeshData()
+    view_type = request.args.get('view', 'neighbor_info') # Default to neighbor_info
+    md = get_meshdata()
+    if not md:
+        abort(503, description="Database connection unavailable")
+
+    # Get base node data (already optimized)
     nodes = md.get_nodes()
-    
-    zero_hop_timeout = int(config.get("server", "zero_hop_timeout", fallback=43200))
-    cutoff_time = int(time.time()) - zero_hop_timeout
-    
-    active_nodes_with_connections = {}
-    
-    if view_type in ['neighbor_info', 'merged']:
-        neighbor_info_nodes = {}
-        for node_id, node in nodes.items():
-            if node.get("active") and node.get("neighbors"):
-                node_data = dict(node)
-                if 'last_heard' not in node_data:
-                    node_data['last_heard'] = datetime.datetime.now()
-                elif isinstance(node_data['last_heard'], (int, float)):
-                    node_data['last_heard'] = datetime.datetime.fromtimestamp(node_data['last_heard'])
-                
-                # Add heard-by data from neighbor info
-                node_data['heard_by_neighbors'] = []
-                for other_id, other_node in nodes.items():
-                    if other_node.get("neighbors"):
-                        for neighbor in other_node["neighbors"]:
-                            if utils.convert_node_id_from_int_to_hex(neighbor["neighbor_id"]) == node_id:
-                                node_data['heard_by_neighbors'].append({
-                                    'neighbor_id': utils.convert_node_id_from_hex_to_int(other_id),
-                                    'snr': neighbor["snr"],
-                                    'distance': neighbor.get("distance")
-                                })
-                
-                neighbor_info_nodes[node_id] = node_data
-                
-        if view_type == 'neighbor_info':
-            active_nodes_with_connections = neighbor_info_nodes
-    
-    if view_type in ['zero_hop', 'merged']:
-        cursor = md.db.cursor(dictionary=True)
-        
-        # First get nodes that have heard messages
-        cursor.execute("""
-            SELECT DISTINCT 
-                received_by_id as node_id,
-                MAX(rx_time) as last_heard
-            FROM message_reception
-            WHERE rx_time > %s
-            AND (
-                (hop_limit IS NULL AND hop_start IS NULL)
-                OR
-                (hop_start - hop_limit = 0)
-            )
-            GROUP BY received_by_id
-        """, (cutoff_time,))
-        
-        zero_hop_nodes = {}
-        for row in cursor.fetchall():
-            node_id = utils.convert_node_id_from_int_to_hex(row['node_id'])
-            if node_id in nodes and nodes[node_id].get("active"):
-                node_data = dict(nodes[node_id])
-                node_data['zero_hop_neighbors'] = []
-                node_data['heard_by_zero_hop'] = []
-                node_data['last_heard'] = datetime.datetime.fromtimestamp(row['last_heard'])
-                
-                # Get nodes this node heard
-                cursor.execute("""
-                    SELECT 
-                        from_id as neighbor_id,
-                        MAX(rx_snr) as snr,
-                        COUNT(*) as message_count,
-                        MAX(rx_time) as last_heard,
-                        p1.latitude_i as lat1_i,
-                        p1.longitude_i as lon1_i,
-                        p2.latitude_i as lat2_i,
-                        p2.longitude_i as lon2_i
-                    FROM message_reception m
-                    LEFT OUTER JOIN position p1 ON p1.id = m.received_by_id
-                    LEFT OUTER JOIN position p2 ON p2.id = m.from_id
-                    WHERE m.received_by_id = %s
-                    AND m.rx_time > %s
-                    AND (
-                        (m.hop_limit IS NULL AND m.hop_start IS NULL)
-                        OR
-                        (m.hop_start - m.hop_limit = 0)
-                    )
-                    GROUP BY from_id, p1.latitude_i, p1.longitude_i, p2.latitude_i, p2.longitude_i
-                """, (row['node_id'], cutoff_time))
-                
-                # Process nodes this node heard
-                for neighbor in cursor.fetchall():
-                    distance = None
-                    if (neighbor['lat1_i'] and neighbor['lon1_i'] and 
-                        neighbor['lat2_i'] and neighbor['lon2_i']):
-                        distance = round(utils.distance_between_two_points(
-                            neighbor['lat1_i'] / 10000000,
-                            neighbor['lon1_i'] / 10000000,
-                            neighbor['lat2_i'] / 10000000,
-                            neighbor['lon2_i'] / 10000000
-                        ), 2)
-                    
-                    node_data['zero_hop_neighbors'].append({
-                        'neighbor_id': neighbor['neighbor_id'],
-                        'snr': neighbor['snr'],
-                        'message_count': neighbor['message_count'],
-                        'distance': distance,
-                        'last_heard': datetime.datetime.fromtimestamp(neighbor['last_heard'])
-                    })
-                
-                # Get nodes that heard this node
-                cursor.execute("""
-                    SELECT 
-                        received_by_id as neighbor_id,
-                        MAX(rx_snr) as snr,
-                        COUNT(*) as message_count,
-                        MAX(rx_time) as last_heard,
-                        p1.latitude_i as lat1_i,
-                        p1.longitude_i as lon1_i,
-                        p2.latitude_i as lat2_i,
-                        p2.longitude_i as lon2_i
-                    FROM message_reception m
-                    LEFT OUTER JOIN position p1 ON p1.id = m.received_by_id
-                    LEFT OUTER JOIN position p2 ON p2.id = m.from_id
-                    WHERE m.from_id = %s
-                    AND m.rx_time > %s
-                    AND (
-                        (m.hop_limit IS NULL AND m.hop_start IS NULL)
-                        OR
-                        (m.hop_start - m.hop_limit = 0)
-                    )
-                    GROUP BY received_by_id, p1.latitude_i, p1.longitude_i, p2.latitude_i, p2.longitude_i
-                """, (row['node_id'], cutoff_time))
-                
-                # Process nodes that heard this node
-                for neighbor in cursor.fetchall():
-                    distance = None
-                    if (neighbor['lat1_i'] and neighbor['lon1_i'] and 
-                        neighbor['lat2_i'] and neighbor['lon2_i']):
-                        distance = round(utils.distance_between_two_points(
-                            neighbor['lat1_i'] / 10000000,
-                            neighbor['lon1_i'] / 10000000,
-                            neighbor['lat2_i'] / 10000000,
-                            neighbor['lon2_i'] / 10000000
-                        ), 2)
-                    
-                    node_data['heard_by_zero_hop'].append({
-                        'neighbor_id': neighbor['neighbor_id'],
-                        'snr': neighbor['snr'],
-                        'message_count': neighbor['message_count'],
-                        'distance': distance,
-                        'last_heard': datetime.datetime.fromtimestamp(neighbor['last_heard'])
-                    })
-                
-                if node_data['zero_hop_neighbors'] or node_data['heard_by_zero_hop']:
-                    zero_hop_nodes[node_id] = node_data
-        
-        if view_type == 'zero_hop':
-            active_nodes_with_connections = zero_hop_nodes
-        else:  # merged view
-            active_nodes_with_connections = neighbor_info_nodes.copy()
-            for node_id, node_data in zero_hop_nodes.items():
-                if node_id in active_nodes_with_connections:
-                    active_nodes_with_connections[node_id]['zero_hop_neighbors'] = node_data['zero_hop_neighbors']
-                    active_nodes_with_connections[node_id]['heard_by_zero_hop'] = node_data['heard_by_zero_hop']
-                    if (node_data['last_heard'] > 
-                        active_nodes_with_connections[node_id]['last_heard']):
-                        active_nodes_with_connections[node_id]['last_heard'] = node_data['last_heard']
-                else:
-                    active_nodes_with_connections[node_id] = node_data
-        
-        cursor.close()
+    if not nodes:
+        # Handle case with no nodes gracefully
+        return render_template(
+            "neighbors.html.j2",
+            auth=auth(), config=config, nodes={},
+            active_nodes_with_connections={}, view_type=view_type,
+            utils=utils, datetime=datetime.datetime, timestamp=datetime.datetime.now()
+        )
+
+    # Get neighbors data using the new method
+    active_nodes_data = md.get_neighbors_data(view_type=view_type)
+
+    # Sort final results by last heard time
+    active_nodes_data = dict(sorted(
+        active_nodes_data.items(),
+        key=lambda item: item[1].get('last_heard', datetime.datetime.min),
+        reverse=True
+    ))
 
     return render_template(
         "neighbors.html.j2",
         auth=auth(),
         config=config,
-        nodes=nodes,
-        active_nodes_with_connections=active_nodes_with_connections,
+        nodes=nodes, # Pass full nodes list for lookups in template
+        active_nodes_with_connections=active_nodes_data, # Pass the processed data
         view_type=view_type,
         utils=utils,
         datetime=datetime.datetime,
@@ -575,7 +646,9 @@ def neighbors():
 
 @app.route('/telemetry.html')
 def telemetry():
-    md = MeshData()
+    md = get_meshdata()
+    if not md: # Check if MeshData failed to initialize
+        abort(503, description="Database connection unavailable")
     nodes = md.get_nodes()
     telemetry = md.get_telemetry_all()
     return render_template(
@@ -592,7 +665,9 @@ def telemetry():
 
 @app.route('/traceroutes.html')
 def traceroutes():
-    md = MeshData()
+    md = get_meshdata()
+    if not md: # Check if MeshData failed to initialize
+        abort(503, description="Database connection unavailable")
     page = request.args.get('page', 1, type=int)
     per_page = 100
     
@@ -634,7 +709,9 @@ def traceroutes():
 
 @app.route('/logs.html')
 def logs():
-    md = MeshData()
+    md = get_meshdata()
+    if not md: # Check if MeshData failed to initialize
+        abort(503, description="Database connection unavailable")
     logs = md.get_logs()
     return render_template(
         "logs.html.j2",
@@ -650,7 +727,9 @@ def logs():
 
 @app.route('/monday.html')
 def monday():
-    md = MeshData()
+    md = get_meshdata()
+    if not md: # Check if MeshData failed to initialize
+        abort(503, description="Database connection unavailable")
     nodes = md.get_nodes()
     chat = md.get_chat()
     monday = MeshtasticMonday(chat).get_data()
@@ -668,7 +747,9 @@ def monday():
 
 @app.route('/mynodes.html')
 def mynodes():
-    md = MeshData()
+    md = get_meshdata()
+    if not md: # Check if MeshData failed to initialize
+        abort(503, description="Database connection unavailable")
     nodes = md.get_nodes()
     owner = auth()
     if not owner:
@@ -780,7 +861,9 @@ def serve_static(filename):
     userp = r"user\_(\w+)\.html"
 
     if re.match(nodep, filename):
-        md = MeshData()
+        md = get_meshdata()
+        if not md: # Check if MeshData failed to initialize
+            abort(503, description="Database connection unavailable")
         match = re.match(nodep, filename)
         node = match.group(1)
         nodes = md.get_nodes()
@@ -790,8 +873,14 @@ def serve_static(filename):
         node_telemetry = md.get_node_telemetry(node_id)
         node_route = md.get_route_coordinates(node_id)
         telemetry_graph = draw_graph(node_telemetry)
-        lp = LOSProfile(nodes, node_id)
-        
+        lp = LOSProfile(nodes, node_id, config, cache)
+
+        # Get the max_distance from config, default to 5000 meters (5 km)
+        max_distance_km = int(config.get("los", "max_distance", fallback=5000)) / 1000  # Convert to kilometers
+
+        # Check if LOS Profile rendering is enabled
+        los_enabled = config.getboolean("los", "enabled", fallback=False)
+
         # Get timeout from config
         zero_hop_timeout = int(config.get("server", "zero_hop_timeout", fallback=43200))  # Default 12 hours
         cutoff_time = int(time.time()) - zero_hop_timeout
@@ -852,28 +941,31 @@ def serve_static(filename):
         cursor.close()
         
         return render_template(
-                f"node.html.j2",
-                auth=auth(),
-                config=config,
-                node=nodes[node],
-                nodes=nodes,
-                hardware=meshtastic_support.HardwareModel,
-                meshtastic_support=meshtastic_support,
-                los_profiles=lp.get_profiles(),
-                telemetry_graph=telemetry_graph,
-                node_route=node_route,
-                utils=utils,
-                datetime=datetime.datetime,
-                timestamp=datetime.datetime.now(),
-                zero_hop_heard=zero_hop_heard,
-                zero_hop_heard_by=zero_hop_heard_by,
-                zero_hop_timeout=zero_hop_timeout,
-            )
+            f"node.html.j2",
+            auth=auth(),
+            config=config,
+            node=nodes[node],
+            nodes=nodes,
+            hardware=meshtastic_support.HardwareModel,
+            meshtastic_support=meshtastic_support,
+            los_profiles=lp.get_profiles() if los_enabled else {},  # Render only if enabled
+            telemetry_graph=telemetry_graph,
+            node_route=node_route,
+            utils=utils,
+            datetime=datetime.datetime,
+            timestamp=datetime.datetime.now(),
+            zero_hop_heard=zero_hop_heard,
+            zero_hop_heard_by=zero_hop_heard_by,
+            zero_hop_timeout=zero_hop_timeout,
+            max_distance=max_distance_km
+        )
 
     if re.match(userp, filename):
         match = re.match(userp, filename)
         username = match.group(1)
-        md = MeshData()
+        md = get_meshdata()
+        if not md: # Check if MeshData failed to initialize
+            abort(503, description="Database connection unavailable")
         owner = md.get_user(username)
         if not owner:
             abort(404)

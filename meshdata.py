@@ -6,6 +6,7 @@ import time
 import utils
 import logging
 import re
+from timezone_utils import time_ago  # Import time_ago from timezone_utils
 
 
 class CustomJSONEncoder(json.JSONEncoder):
@@ -65,23 +66,77 @@ class MeshData:
         
         for attempt in range(max_retries):
             try:
+                # Ensure any existing connection is closed before creating a new one
+                if self.db and self.db.is_connected():
+                    try:
+                        self.db.close()
+                        logging.debug("Closed existing DB connection before reconnecting.")
+                    except mysql.connector.Error as close_err:
+                            logging.warning(f"Error closing existing DB connection: {close_err}")
+
                 self.db = mysql.connector.connect(
                     host=self.config["database"]["host"],
                     user=self.config["database"]["username"],
                     password=self.config["database"]["password"],
                     database=self.config["database"]["database"],
-                    charset="utf8mb4"
+                    charset="utf8mb4",
+                    # Add connection timeout (e.g., 10 seconds)
+                    connection_timeout=10
                 )
-                cur = self.db.cursor()
-                cur.execute("SET NAMES utf8mb4;")
-                cur.close()
-                return
+                if self.db.is_connected():
+                    cur = self.db.cursor()
+                    cur.execute("SET NAMES utf8mb4;")
+                    cur.close()
+                    logging.info(f"Database connection successful (Attempt {attempt + 1}).")
+                    return
+                else:
+                    # This case might not be reached if connect throws error, but good practice
+                    raise mysql.connector.Error("Connection attempt returned but not connected.")
+
             except mysql.connector.Error as err:
+                logging.warning(f"Database connection attempt {attempt + 1}/{max_retries} failed: {err}")
                 if attempt < max_retries - 1:
-                    logging.warning(f"Waiting for database to become ready. Attempt {attempt + 1}/{max_retries}")
+                    logging.info(f"Retrying connection in {retry_delay} seconds...")
                     time.sleep(retry_delay)
                 else:
-                    raise
+                    logging.error("Maximum database connection retries reached. Raising error.")
+                    raise # Re-raise the last error after all retries fail
+
+    def ping_db(self):
+        """Checks connection and attempts reconnect if needed."""
+        if self.db is None:
+            logging.warning("Database object is None. Attempting reconnect.")
+            try:
+                self.connect_db()
+                return self.db is not None and self.db.is_connected()
+            except Exception as e:
+                logging.error(f"Reconnect failed during ping: {e}")
+                return False
+
+        try:
+            # Check if connected first, then try ping with reconnect=True
+            if not self.db.is_connected():
+                    logging.warning("DB connection reported as not connected. Attempting ping/reconnect.")
+            # The ping=True argument attempts to reconnect if connection is lost.
+            self.db.ping(reconnect=True, attempts=3, delay=2)
+            logging.debug("Database connection verified via ping.")
+            return True
+        except mysql.connector.Error as err:
+            logging.error(f"Database ping/reconnect failed: {err}")
+            # Attempt a full reconnect as a final measure if ping fails
+            try:
+                logging.warning("Ping failed. Attempting full database reconnect...")
+                self.connect_db() # Use the existing connect method
+                # Check connection status again after attempting connect_db
+                if self.db and self.db.is_connected():
+                    logging.info("Full database reconnect successful.")
+                    return True
+                else:
+                    logging.error("Full database reconnect attempt failed to establish connection.")
+                    return False
+            except Exception as e:
+                    logging.error(f"Full database reconnect attempt raised an exception: {e}")
+                    return False
 
     def get_telemetry(self, id):
         telemetry = {}
@@ -160,6 +215,52 @@ ORDER BY ts_created"""
         cur.close()
         return position
 
+    def get_position_at_time(self, node_id, target_timestamp):
+        """
+        Retrieves the position record from positionlog for a node
+        that is closest to, but not after, the target timestamp.
+        """
+        position = {}
+        # Convert Unix timestamp to datetime object for SQL comparison
+        target_dt = datetime.datetime.fromtimestamp(target_timestamp)
+
+        # Query positionlog for the latest entry at or before the target time
+        sql = """SELECT latitude_i, longitude_i, ts_created
+                 FROM positionlog
+                 WHERE id = %s
+                 ORDER BY ABS(TIMESTAMPDIFF(SECOND, ts_created, %s)) ASC
+                 LIMIT 1"""
+        params = (node_id, target_dt)
+        cur = None
+        try:
+            cur = self.db.cursor(dictionary=True)
+            cur.execute(sql, params)
+            row = cur.fetchone()
+            if row:
+                position = {
+                    "latitude_i": row["latitude_i"],
+                    "longitude_i": row["longitude_i"],
+                    "position_time": row["ts_created"].timestamp() # Still store the actual timestamp of the position found
+                }
+                # Add derived lat/lon
+                if position["latitude_i"]:
+                    position["latitude"] = position["latitude_i"] / 10000000
+                else:
+                    position["latitude"] = None
+                if position["longitude_i"]:
+                    position["longitude"] = position["longitude_i"] / 10000000
+                else:
+                    position["longitude"] = None
+
+        except mysql.connector.Error as err:
+            logging.error(f"Database error fetching nearest position for {node_id}: {err}")
+        except Exception as e:
+            logging.error(f"Error fetching nearest position for {node_id}: {e}")
+        finally:
+            if cur:
+                cur.close()
+        return position
+
     def get_neighbors(self, id):
         neighbors = []
         sql = """SELECT
@@ -174,7 +275,7 @@ FROM neighborinfo a
 LEFT OUTER JOIN position p1 ON p1.id = a.id
 LEFT OUTER JOIN position p2 ON p2.id = a.neighbor_id
 WHERE a.id = %s
-AND a.ts_created < NOW() - INTERVAL 1 DAY
+AND a.ts_created >= NOW() - INTERVAL 1 DAY
 """
         params = (id, )
         cur = self.db.cursor()
@@ -1015,6 +1116,9 @@ WHERE id = %s ORDER BY ts_created DESC LIMIT 1"""
         logging.info(f"Position updated for {id}")
 
     def store(self, data, topic):
+        if not self.ping_db():
+            logging.error("Database connection is not active. Skipping store operation.")
+            return # Stop processing if DB is unavailable
         if not data:
             return
         self.log_data(topic, data)
@@ -1307,6 +1411,373 @@ VALUES (%s, %s, %s, %s, FROM_UNIXTIME(%s))
             except Exception as e:
                 print(f"failed to write record.")
         self.db.commit()
+
+    def get_neighbor_info_links(self, days=1):
+        """
+        Fetch neighbor info links from the database.
+        
+        Args:
+            days: Number of days to look back for neighbor info data
+            
+        Returns:
+            Dictionary with node_id_int as keys and neighbor info data as values
+        """
+        neighbor_info_links = {}  # {node_id_int: {'heard': {neighbor_id_int: {data}}, ...}}
+        
+        cursor = self.db.cursor(dictionary=True)
+        # Fetch links from the specified days, adjust interval as needed
+        cursor.execute("""
+            SELECT
+                ni.id, ni.neighbor_id, ni.snr,
+                p1.latitude_i as lat1_i, p1.longitude_i as lon1_i,
+                p2.latitude_i as lat2_i, p2.longitude_i as lon2_i
+            FROM neighborinfo ni
+            LEFT OUTER JOIN position p1 ON p1.id = ni.id
+            LEFT OUTER JOIN position p2 ON p2.id = ni.neighbor_id
+            WHERE ni.ts_created >= NOW() - INTERVAL %s DAY
+        """, (days,))
+        
+        for row in cursor.fetchall():
+            node_id_int = row['id']
+            neighbor_id_int = row['neighbor_id']
+            distance = None
+            if (row['lat1_i'] and row['lon1_i'] and row['lat2_i'] and row['lon2_i']):
+                distance = round(utils.distance_between_two_points(
+                    row['lat1_i'] / 10000000, row['lon1_i'] / 10000000,
+                    row['lat2_i'] / 10000000, row['lon2_i'] / 10000000
+                ), 2)
+
+            link_data = {
+                'snr': row['snr'], 
+                'distance': distance, 
+                'neighbor_id': neighbor_id_int, 
+                'source_type': 'neighbor_info'
+            }
+
+            if node_id_int not in neighbor_info_links:
+                neighbor_info_links[node_id_int] = {'heard': {}, 'heard_by': {}}
+            
+            # Add to node_id's 'heard' list
+            neighbor_info_links[node_id_int]['heard'][neighbor_id_int] = link_data
+            
+            # Add to neighbor_id's 'heard_by' list
+            if neighbor_id_int not in neighbor_info_links:
+                neighbor_info_links[neighbor_id_int] = {'heard': {}, 'heard_by': {}}
+            
+            heard_by_data = {
+                'snr': row['snr'], 
+                'distance': distance, 
+                'neighbor_id': node_id_int,
+                'source_type': 'neighbor_info'
+            }
+            neighbor_info_links[neighbor_id_int]['heard_by'][node_id_int] = heard_by_data
+
+        cursor.close()
+        return neighbor_info_links
+
+    def get_zero_hop_links(self, cutoff_time):
+        """
+        Fetch zero-hop links from the database.
+        
+        Args:
+            cutoff_time: Unix timestamp for the cutoff time
+            
+        Returns:
+            Dictionary with node_id_int as keys and zero-hop data as values
+        """
+        zero_hop_links = {}  # {node_id_int: {'heard': {neighbor_id_int: {data}}, 'heard_by': {neighbor_id_int: {data}}}}
+        zero_hop_last_heard = {}  # Keep track of last heard time for sorting
+        
+        cursor = self.db.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT
+                m.from_id,
+                m.received_by_id,
+                MAX(m.rx_snr) as snr,
+                COUNT(*) as message_count,
+                MAX(m.rx_time) as last_heard_time,
+                p_sender.latitude_i as lat_sender_i,
+                p_sender.longitude_i as lon_sender_i,
+                p_receiver.latitude_i as lat_receiver_i,
+                p_receiver.longitude_i as lon_receiver_i
+            FROM message_reception m
+            LEFT OUTER JOIN position p_sender ON p_sender.id = m.from_id
+            LEFT OUTER JOIN position p_receiver ON p_receiver.id = m.received_by_id
+            WHERE m.rx_time > %s
+            AND (
+                (m.hop_limit IS NULL AND m.hop_start IS NULL)
+                OR
+                (m.hop_start - m.hop_limit = 0)
+            )
+            GROUP BY m.from_id, m.received_by_id,
+                     p_sender.latitude_i, p_sender.longitude_i,
+                     p_receiver.latitude_i, p_receiver.longitude_i
+        """, (cutoff_time,))
+
+        for row in cursor.fetchall():
+            sender_id = row['from_id']
+            receiver_id = row['received_by_id']
+            last_heard_dt = datetime.datetime.fromtimestamp(row['last_heard_time'])
+
+            # Update last heard time for involved nodes
+            zero_hop_last_heard[sender_id] = max(zero_hop_last_heard.get(sender_id, datetime.datetime.min), last_heard_dt)
+            zero_hop_last_heard[receiver_id] = max(zero_hop_last_heard.get(receiver_id, datetime.datetime.min), last_heard_dt)
+
+            distance = None
+            if (row['lat_sender_i'] and row['lon_sender_i'] and
+                row['lat_receiver_i'] and row['lon_receiver_i']):
+                distance = round(utils.distance_between_two_points(
+                    row['lat_sender_i'] / 10000000, row['lon_sender_i'] / 10000000,
+                    row['lat_receiver_i'] / 10000000, row['lon_receiver_i'] / 10000000
+                ), 2)
+
+            link_data = {
+                'snr': row['snr'],
+                'message_count': row['message_count'],
+                'distance': distance,
+                'last_heard': last_heard_dt,
+                'neighbor_id': sender_id,  # For receiver, neighbor is sender
+                'source_type': 'zero_hop'
+            }
+            
+            heard_by_data = {
+                'snr': row['snr'],
+                'message_count': row['message_count'],
+                'distance': distance,
+                'last_heard': last_heard_dt,
+                'neighbor_id': receiver_id,  # For sender, neighbor is receiver
+                'source_type': 'zero_hop'
+            }
+
+            # Add to receiver's 'heard' list
+            if receiver_id not in zero_hop_links:
+                zero_hop_links[receiver_id] = {'heard': {}, 'heard_by': {}}
+            zero_hop_links[receiver_id]['heard'][sender_id] = link_data
+
+            # Add to sender's 'heard_by' list
+            if sender_id not in zero_hop_links:
+                zero_hop_links[sender_id] = {'heard': {}, 'heard_by': {}}
+            zero_hop_links[sender_id]['heard_by'][receiver_id] = heard_by_data
+
+        cursor.close()
+        return zero_hop_links, zero_hop_last_heard
+
+    def get_graph_data(self, view_type='merged', days=1, zero_hop_timeout=43200):
+        """
+        Get graph data for visualization.
+        
+        Args:
+            view_type: 'neighbor_info', 'zero_hop', or 'merged'
+            days: Number of days to look back for neighbor info data
+            zero_hop_timeout: Timeout in seconds for zero-hop data
+            
+        Returns:
+            Dictionary with nodes and edges for graph visualization
+        """
+        nodes = self.get_nodes()
+        nodes_for_graph = []
+        edges_for_graph = []
+        active_node_ids_hex = set()  # Keep track of nodes to include in the graph
+        
+        # Get neighbor info links
+        neighbor_info_links = {}
+        if view_type in ['neighbor_info', 'merged']:
+            neighbor_info_links = self.get_neighbor_info_links(days)
+            
+            # Add involved nodes to the active set if they exist in our main nodes list
+            for node_id_int, links in neighbor_info_links.items():
+                node_id_hex = utils.convert_node_id_from_int_to_hex(node_id_int)
+                if node_id_hex in nodes and nodes[node_id_hex].get("active"):
+                    active_node_ids_hex.add(node_id_hex)
+                
+                for neighbor_id_int in links.get('heard', {}):
+                    neighbor_id_hex = utils.convert_node_id_from_int_to_hex(neighbor_id_int)
+                    if neighbor_id_hex in nodes and nodes[neighbor_id_hex].get("active"):
+                        active_node_ids_hex.add(neighbor_id_hex)
+        
+        # Get zero-hop links
+        zero_hop_links = {}
+        if view_type in ['zero_hop', 'merged']:
+            cutoff_time = int(time.time()) - zero_hop_timeout
+            zero_hop_links, _ = self.get_zero_hop_links(cutoff_time)
+            
+            # Add involved nodes to the active set if they exist
+            for node_id_int, links in zero_hop_links.items():
+                node_id_hex = utils.convert_node_id_from_int_to_hex(node_id_int)
+                if node_id_hex in nodes and nodes[node_id_hex].get("active"):
+                    active_node_ids_hex.add(node_id_hex)
+                
+                for neighbor_id_int in links.get('heard', {}):
+                    neighbor_id_hex = utils.convert_node_id_from_int_to_hex(neighbor_id_int)
+                    if neighbor_id_hex in nodes and nodes[neighbor_id_hex].get("active"):
+                        active_node_ids_hex.add(neighbor_id_hex)
+        
+        # Build nodes for graph
+        for node_id_hex in active_node_ids_hex:
+            node_data = nodes[node_id_hex]
+            
+            # Get HW Model Name safely
+            hw_model = node_data.get('hw_model')
+            hw_model_name = 'Unknown HW'
+            if hw_model is not None:
+                try:
+                    from meshtastic_support import HardwareModel
+                    hw_model_name = HardwareModel(hw_model).name
+                    hw_model_name = hw_model_name.replace('_', ' ').title()
+                except (ValueError, ImportError) as e:
+                    logging.warning(f"Could not resolve hardware model {hw_model} for node {node_id_hex}: {e}")
+            
+            # Get Icon URL
+            node_name_for_icon = node_data.get('long_name', node_data.get('short_name', ''))
+            icon_url = utils.graph_icon(node_name_for_icon)
+            
+            nodes_for_graph.append({
+                'id': node_id_hex,
+                'short': node_data.get('short_name', 'UNK'),
+                'icon_url': icon_url,
+                'node_data': {
+                    'long_name': node_data.get('long_name', 'Unknown Name'),
+                    'hw_model': hw_model_name,
+                    'last_seen': time_ago(node_data.get('ts_seen')) if node_data.get('ts_seen') else 'Never'
+                }
+            })
+        
+        # Build edges for graph
+        added_node_pairs = set()
+        
+        # Add Neighbor Info Edges
+        if view_type in ['neighbor_info', 'merged']:
+            for node_id_int, links in neighbor_info_links.items():
+                for neighbor_id_int, data in links.get('heard', {}).items():
+                    from_node_hex = utils.convert_node_id_from_int_to_hex(node_id_int)
+                    to_node_hex = utils.convert_node_id_from_int_to_hex(neighbor_id_int)
+                    
+                    # Ensure both nodes are active and in our graph node list
+                    if from_node_hex in active_node_ids_hex and to_node_hex in active_node_ids_hex:
+                        node_pair = tuple(sorted((from_node_hex, to_node_hex)))
+                        # Add edge only if this node pair hasn't been added yet
+                        if node_pair not in added_node_pairs:
+                            edges_for_graph.append({
+                                'from': from_node_hex,
+                                'to': to_node_hex,
+                                'edge_data': data  # Contains snr, distance, source_type='neighbor_info'
+                            })
+                            added_node_pairs.add(node_pair)  # Mark pair as added
+        
+        # Add Zero Hop Edges (only if not already added via Neighbor Info)
+        if view_type in ['zero_hop', 'merged']:
+            for receiver_id_int, links in zero_hop_links.items():
+                for sender_id_int, data in links.get('heard', {}).items():
+                    # For zero hop, 'from' is sender, 'to' is receiver
+                    from_node_hex = utils.convert_node_id_from_int_to_hex(sender_id_int)
+                    to_node_hex = utils.convert_node_id_from_int_to_hex(receiver_id_int)
+                    
+                    # Ensure both nodes are active and in our graph node list
+                    if from_node_hex in active_node_ids_hex and to_node_hex in active_node_ids_hex:
+                        node_pair = tuple(sorted((from_node_hex, to_node_hex)))
+                        # Add edge only if this node pair hasn't been added yet
+                        if node_pair not in added_node_pairs:
+                            edges_for_graph.append({
+                                'from': from_node_hex,
+                                'to': to_node_hex,
+                                'edge_data': data  # Contains snr, distance, source_type='zero_hop'
+                            })
+                            added_node_pairs.add(node_pair)  # Mark pair as added
+        
+        # Combine nodes and edges
+        graph_data = {
+            'nodes': nodes_for_graph,
+            'edges': edges_for_graph
+        }
+        
+        return graph_data
+
+    def get_neighbors_data(self, view_type='neighbor_info', days=1, zero_hop_timeout=43200):
+        """
+        Get neighbors data for the neighbors page.
+        
+        Args:
+            view_type: 'neighbor_info', 'zero_hop', or 'merged'
+            days: Number of days to look back for neighbor info data
+            zero_hop_timeout: Timeout in seconds for zero-hop data
+            
+        Returns:
+            Dictionary with node_id_hex as keys and neighbor data as values
+        """
+        nodes = self.get_nodes()
+        if not nodes:
+            return {}
+            
+        # Get neighbor info links
+        neighbor_info_links = {}
+        if view_type in ['neighbor_info', 'merged']:
+            neighbor_info_links = self.get_neighbor_info_links(days)
+        
+        # Get zero-hop links
+        zero_hop_links = {}
+        zero_hop_last_heard = {}
+        if view_type in ['zero_hop', 'merged']:
+            cutoff_time = int(time.time()) - zero_hop_timeout
+            zero_hop_links, zero_hop_last_heard = self.get_zero_hop_links(cutoff_time)
+        
+        # Dictionary to hold the final data for active nodes
+        active_nodes_data = {}
+        
+        # Combine data for active nodes based on view type
+        for node_id_hex, node_base_data in nodes.items():
+            if not node_base_data.get("active"):
+                continue  # Skip inactive nodes
+                
+            node_id_int = utils.convert_node_id_from_hex_to_int(node_id_hex)
+            final_node_data = dict(node_base_data)  # Start with base data
+            
+            # Initialize lists
+            final_node_data['neighbors'] = []
+            final_node_data['heard_by_neighbors'] = []
+            final_node_data['zero_hop_neighbors'] = []
+            final_node_data['heard_by_zero_hop'] = []
+            
+            has_neighbor_info = node_id_int in neighbor_info_links
+            has_zero_hop_info = node_id_int in zero_hop_links
+            
+            # Determine overall last heard time for sorting
+            last_heard_zero_hop = max([d['last_heard'] for d in zero_hop_links[node_id_int]['heard'].values()], default=datetime.datetime.min) if has_zero_hop_info else datetime.datetime.min
+            last_heard_by_zero_hop = max([d['last_heard'] for d in zero_hop_links[node_id_int]['heard_by'].values()], default=datetime.datetime.min) if has_zero_hop_info else datetime.datetime.min
+            
+            node_ts_seen = datetime.datetime.fromtimestamp(node_base_data['ts_seen']) if node_base_data.get('ts_seen') else datetime.datetime.min
+            
+            final_node_data['last_heard'] = max(
+                node_ts_seen,
+                zero_hop_last_heard.get(node_id_int, datetime.datetime.min)  # Use precalculated zero hop time
+                # We don't need to include neighbor info times here as they aren't distinct per-link
+            )
+            
+            include_node = False
+            if view_type in ['neighbor_info', 'merged']:
+                if has_neighbor_info:
+                    final_node_data['neighbors'] = list(neighbor_info_links[node_id_int]['heard'].values())
+                    final_node_data['heard_by_neighbors'] = list(neighbor_info_links[node_id_int]['heard_by'].values())
+                    if final_node_data['neighbors'] or final_node_data['heard_by_neighbors']:
+                        include_node = True
+            
+            if view_type in ['zero_hop', 'merged']:
+                if has_zero_hop_info:
+                    final_node_data['zero_hop_neighbors'] = list(zero_hop_links[node_id_int]['heard'].values())
+                    final_node_data['heard_by_zero_hop'] = list(zero_hop_links[node_id_int]['heard_by'].values())
+                    if final_node_data['zero_hop_neighbors'] or final_node_data['heard_by_zero_hop']:
+                        include_node = True
+            
+            if include_node:
+                active_nodes_data[node_id_hex] = final_node_data
+        
+        # Sort final results by last heard time
+        active_nodes_data = dict(sorted(
+            active_nodes_data.items(),
+            key=lambda item: item[1].get('last_heard', datetime.datetime.min),
+            reverse=True
+        ))
+        
+        return active_nodes_data
 
 
 def create_database():

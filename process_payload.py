@@ -183,17 +183,28 @@ def get_data(msg):
         return None
 
 
-def process_payload(payload, topic):
-    md = MeshData()
+def process_payload(payload, topic, md: MeshData):
+    # --- Add log at the start ---
+    logger = logging.getLogger(__name__) # Get logger instance
+    logger.debug(f"process_payload: Entered function for topic: {topic}")
+    # --- End log ---
     mp = get_packet(payload)
     if mp:
         try:
             data = get_data(mp)
             if data:  # Only store if we got valid data
+                logger.debug(f"process_payload: Calling md.store() for topic {topic}")
+                # Use the passed-in MeshData instance
                 md.store(data, topic)
             else:
-                logging.warning(f"Received invalid or unsupported message type on topic {topic}")
+                # Log topic only if debug is enabled or if it's an unsupported type
+                if config.get("server", "debug") == "true":
+                    logging.warning(f"Received invalid or unsupported message type on topic {topic}. Payload: {payload[:100]}...") # Log partial payload for debug
+                else:
+                    logger.warning(f"process_payload: get_packet returned None for topic {topic}")
+
         except KeyError as e:
             logging.warning(f"Failed to process message: Missing key {str(e)} in payload on topic {topic}")
         except Exception as e:
-            logging.error(f"Unexpected error processing message: {str(e)}")
+                # Log the full traceback for unexpected errors
+            logging.exception(f"Unexpected error processing message on topic {topic}: {str(e)}") # Use logging.exception

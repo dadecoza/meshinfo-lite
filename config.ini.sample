@@ -43,3 +43,8 @@ email=YOUR_EMAIL_ADDRESS
 password=SMTP_PASSWORD
 server=SMTP_SERVER
 port=SMTP_PORT
+
+[los]
+enabled=false
+max_distance=10000
+cache_duration=43200

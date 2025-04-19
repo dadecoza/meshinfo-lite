@@ -464,7 +464,7 @@
     </div>
   </div>
   {% if los_profiles %}
-  <div class="w-100 mt-2 text-center fw-bold p-2" style="background: #D7F9FF;">Line-of-sight with nodes in 20km radius</div>
+  <div class="w-100 mt-2 text-center fw-bold p-2" style="background: #D7F9FF;">Line-of-sight with nodes in {{ max_distance | round(2) }} km radius</div>
   <div class="row">
     {% for id, data in los_profiles.items()|sort(attribute='1.distance') %}
     <div class="col-sm-6 p-2">
@@ -517,7 +517,7 @@
   var node = {
     id: '{{ node.id }}',
     short_name: '{{ node.short_name }}',
-    long_name: '{{ node.long_name }}',
+    long_name: '{{ node.long_name | e }}',
     last_seen: '{{ node.last_seen }}',
     position: {
       latitude: 38.575764,
