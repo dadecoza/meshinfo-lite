@@ -13,6 +13,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import configparser
 import logging
+from meshtastic_support import Role, Channel, ShortChannel
+import hashlib
 
 
 def distance_between_two_points(lat1, lon1, lat2, lon2):
@@ -172,6 +174,25 @@ def active_nodes(nodes):
         for node in nodes if nodes[node]["active"]
     }
 
+def get_role_name(role_value):
+    """
+    Get the human-readable name for a role value.
+    
+    Args:
+        role_value (int): The numeric role value from the database
+        
+    Returns:
+        str: The human-readable role name or "Unknown (value)" if not recognized
+    """
+    if role_value is None:
+        return "Client"
+    
+    try:
+        # Get the role name, replace underscores with spaces, and capitalize each word
+        role_name = Role(role_value).name.replace('_', ' ')
+        return ' '.join(word.capitalize() for word in role_name.split())
+    except (ValueError, AttributeError):
+        return f"Unknown ({role_value})"
 
 def get_owner_nodes(nodes, owner):
     return {
@@ -230,3 +251,83 @@ def send_email(recipient_email, subject, message):
 
     except Exception as e:
         logging.error(str(e))
+
+
+def get_channel_name(channel_value, use_short_names=False):
+    """Convert a channel number to its human-readable name."""
+    if channel_value is None:
+        return "Unknown"
+    try:
+        if use_short_names:
+            channel_name = ShortChannel(channel_value).name
+            return channel_name
+        else:
+            channel_name = Channel(channel_value).name
+            # Keep the underscores but capitalize each word
+            words = channel_name.split('_')
+            formatted_words = [word.capitalize() for word in words]
+            return ''.join(formatted_words)
+    except (ValueError, TypeError):
+        return f"Unknown ({channel_value})"
+
+
+def get_channel_color(channel_value):
+    """
+    Generate a consistent, visually pleasing color for a channel.
+    
+    Args:
+        channel_value: The numeric channel value
+        
+    Returns:
+        A hex color code (e.g., "#FF5733")
+    """
+    if channel_value is None:
+        return "#808080"  # Gray for unknown channels
+    
+    # Define a set of visually pleasing colors for known channels
+    channel_colors = {
+        8: "#4CAF50",    # Green for LongFast
+        31: "#2196F3",   # Blue for MediumFast
+        112: "#FF9800",  # Orange for ShortFast
+        # Add more channels as they are discovered
+    }
+    
+    # If we have a predefined color for this channel, use it
+    if channel_value in channel_colors:
+        return channel_colors[channel_value]
+    
+    # For unknown channels, generate a consistent color based on the channel value
+    # Using a hash function to convert the channel value to a color
+    
+    # Create a hash of the channel value
+    hash_object = hashlib.md5(str(channel_value).encode())
+    hex_dig = hash_object.hexdigest()
+    
+    # Use the first 6 characters of the hash as the color
+    # This ensures the same channel always gets the same color
+    color = f"#{hex_dig[:6]}"
+    
+    # Adjust the color to ensure it's visually pleasing
+    # Convert to RGB, adjust saturation and brightness, then back to hex
+    r = int(color[1:3], 16)
+    g = int(color[3:5], 16)
+    b = int(color[5:7], 16)
+    
+    # Increase saturation and brightness
+    max_val = max(r, g, b)
+    min_val = min(r, g, b)
+    
+    # If the color is too dark, lighten it
+    if max_val < 100:
+        r = min(255, r + 100)
+        g = min(255, g + 100)
+        b = min(255, b + 100)
+    
+    # If the color is too light, darken it slightly
+    if min_val > 200:
+        r = max(0, r - 50)
+        g = max(0, g - 50)
+        b = max(0, b - 50)
+    
+    # Convert back to hex
+    return f"#{r:02x}{g:02x}{b:02x}"

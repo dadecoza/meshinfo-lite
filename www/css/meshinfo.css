@@ -211,11 +211,14 @@ nav {
     border-radius: 12px;
     padding: 4px 10px;
     font-size: 0.85em;
-    gap: 6px;
     text-decoration: none;
     color: inherit;
     transition: background-color 0.2s;
     margin: 2px;
+}
+
+.reception-badge .snr-indicator {
+    margin-right: 6px;
 }
 
 .reception-badge:hover {
@@ -301,6 +304,7 @@ nav {
     background: rgba(0, 0, 0, 0.05);
     border-radius: 4px;
     white-space: nowrap;
+    margin-right: 0.5em;
 }
 
 .btn-group .btn {
@@ -400,4 +404,161 @@ nav {
         z-index: 1060;
         display: block;
     }
+}
+
+/* Map Settings Panel Styles */
+#settings {
+    max-width: 350px;
+    font-size: 0.9em;
+    transition: all 0.3s ease;
+}
+
+#settings h5 {
+    font-size: 1.1em;
+    font-weight: 500;
+}
+
+#settings .form-label {
+    font-weight: 500;
+    font-size: 0.9em;
+    margin-bottom: 0.25rem;
+}
+
+#settings .form-select-sm,
+#settings .form-control-sm {
+    font-size: 0.85em;
+    padding: 0.25rem 0.5rem;
+}
+
+#settings .text-muted {
+    font-size: 0.8em;
+    opacity: 0.8;
+}
+
+#settings .mb-3:last-child {
+    margin-bottom: 0 !important;
+}
+
+/* Make settings panel collapsible on mobile */
+@media (max-width: 768px) {
+    #settings {
+        max-height: 60vh;
+        overflow-y: auto;
+        max-width: calc(100% - 40px);
+        margin: 20px;
+    }
+}
+
+/* Add smooth transitions for filter changes */
+.ol-layer {
+    transition: opacity 0.3s ease;
+}
+
+/* Improve visibility of map controls */
+.ol-control button {
+    background-color: rgba(255, 255, 255, 0.9) !important;
+    color: #333 !important;
+}
+
+.ol-control button:hover {
+    background-color: rgba(255, 255, 255, 1) !important;
+}
+
+/* Settings Toggle Button */
+.settings-toggle {
+    position: fixed;
+    top: 70px; /* Below navbar */
+    right: 20px;
+    z-index: 1001;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: white;
+    border: 1px solid #dee2e6;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.settings-toggle:hover {
+    background: #f8f9fa;
+    transform: rotate(30deg);
+}
+
+.settings-toggle i {
+    font-size: 1.2em;
+    color: #333;
+}
+
+/* Settings Panel */
+.settings-panel {
+    position: fixed;
+    top: 120px; /* Below settings toggle */
+    right: 20px;
+    z-index: 1000;
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    padding: 1rem;
+    max-width: 350px;
+    max-height: calc(100vh - 140px);
+    overflow-y: auto;
+    font-size: 0.9em;
+}
+
+/* Node Info Panel */
+.node-info-panel {
+    position: fixed;
+    top: 180px; /* Increased from 200px to move it down 70px */
+    right: 20px;
+    z-index: 999;
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    padding: 1rem;
+    max-width: 350px;
+    max-height: calc(100vh - 140px);
+    overflow-y: auto;
+}
+
+/* Make settings and node info panels responsive */
+@media (max-width: 768px) {
+    .settings-panel,
+    .node-info-panel {
+        max-width: calc(100% - 40px);
+        margin: 20px;
+    }
+
+    .settings-panel {
+        top: 70px;
+        max-height: calc(100vh - 90px);
+    }
+
+    .node-info-panel {
+        top: auto;
+        bottom: 20px;
+        max-height: 60vh;
+    }
+}
+
+/* Improve map controls visibility */
+.ol-control {
+    background: none;
+}
+
+.ol-control button {
+    background-color: white !important;
+    color: #333 !important;
+    border: 1px solid #dee2e6 !important;
+    border-radius: 4px !important;
+    margin: 2px !important;
+    transition: all 0.2s ease;
+}
+
+.ol-control button:hover {
+    background-color: #f8f9fa !important;
+    color: #000 !important;
 }

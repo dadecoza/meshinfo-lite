@@ -3,6 +3,49 @@
 
 {% block title %}Traceroutes | MeshInfo{% endblock %}
 
+{% block head %}
+<script>
+// Function to initialize popovers
+function initializePopovers() {
+    if (typeof jQuery !== 'undefined') {
+        // Only initialize popovers on desktop
+        if (window.innerWidth > 768) {
+            $('[data-toggle="popover"]').popover({
+                html: true,
+                trigger: 'hover',
+                placement: 'bottom',
+                container: 'body',
+                delay: { show: 50, hide: 100 }
+            });
+        } else {
+            // Destroy any existing popovers on mobile
+            $('[data-toggle="popover"]').popover('dispose');
+        }
+    }
+}
+
+// Initialize on DOM content loaded
+document.addEventListener('DOMContentLoaded', initializePopovers);
+
+// Re-initialize on window resize
+let resizeTimer;
+window.addEventListener('resize', function() {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function() {
+        $('[data-toggle="popover"]').popover('dispose');
+        initializePopovers();
+    }, 250);
+});
+
+// Backup initialization if jQuery loads late
+window.addEventListener('load', function() {
+    if (typeof jQuery !== 'undefined' && !$('[data-toggle="popover"]').data('bs.popover')) {
+        initializePopovers();
+    }
+});
+</script>
+{% endblock %}
+
 {% block content %}
 <div class="container pt-3">
   <h5>{{ this_page.title() }}</h5>
@@ -15,6 +58,7 @@
       <th scope="col">To</th>
       <th scope="col">Route</th>
       <th scope="col">Hops</th>
+      <th scope="col">Ch</th>
       {# <th scope="col">Success</th> #}
       <th scope="col">Actions</th>
     </tr>
@@ -45,50 +89,105 @@
             <span class="text-muted me-2" style="min-width: 70px;">Outbound:</span>
             <div class="d-flex align-items-center flex-wrap">
               {# Source node #}
-              <div class="d-inline-flex align-items-center me-2">
-                {% if fnodeid in nodes %}
-                  <a href="node_{{ fnodeid }}.html" class="text-decoration-none fw-bold">
-                    {{ nodes[fnodeid].short_name }}
-                  </a>
-                  {% if item.route|length == 0 and item.snr_towards %}
-                    {{ snr_badge(item.snr_towards[0]) }}
-                  {% endif %}
-                {% else %}
-                  <span class="fw-bold">UNK</span>
-                {% endif %}
-              </div>
+              {% if fnodeid in nodes %}
+                <a href="/node_{{ fnodeid }}.html" 
+                   class="reception-badge {% if item.route|length == 0 and item.snr_towards %}{% if item.snr_towards[0] > 0 %}snr-good{% elif item.snr_towards[0] > -5 %}snr-adequate{% elif item.snr_towards[0] > -10 %}snr-poor{% else %}snr-very-poor{% endif %}{% endif %}"
+                   data-toggle="popover"
+                   data-content="<div class='receiver-popover'>
+                       <strong>{{ nodes[fnodeid].long_name }}</strong><br>
+                       {% if item.route|length == 0 and item.snr_towards %}
+                         SNR: {{ '%.1f'|format(item.snr_towards[0]) }}dB<br>
+                       {% endif %}
+                       {% if nodes[fnodeid].hw_model %}
+                         HW: {{ nodes[fnodeid].hw_model | safe_hw_model }}<br>
+                       {% endif %}
+                       {% if nodes[fnodeid].firmware_version %}
+                         FW: {{ nodes[fnodeid].firmware_version }}<br>
+                       {% endif %}
+                       {% if nodes[fnodeid].role is not none %}
+                         Role: {{ utils.get_role_name(nodes[fnodeid].role) }}<br>
+                       {% endif %}
+                       {% if nodes[fnodeid].owner_username %}
+                         Owner: {{ nodes[fnodeid].owner_username }}<br>
+                       {% endif %}
+                       Last Seen: {{ time_ago(nodes[fnodeid].ts_seen) }}
+                   </div>">
+                   {% if item.route|length == 0 and item.snr_towards %}<span class="snr-indicator"></span>{% endif %}
+                   {{ nodes[fnodeid].short_name }}
+                </a>
+              {% else %}
+                <span class="reception-badge">
+                  {{ "UNK" }}
+                </span>
+              {% endif %}
 
               {# Forward hops #}
               {% for hop in item.route %}
                 <span class="mx-1">⇢</span>
-                <div class="d-inline-flex align-items-center me-2">
-                  {% set hnodeid = utils.convert_node_id_from_int_to_hex(hop) %}
-                  {% set hnode = nodes[hnodeid] if hnodeid in nodes else None %}
-                  {% if hnode %}
-                    <a href="node_{{ hnodeid }}.html" class="text-decoration-none">
-                      {{ hnode.short_name }}
-                    </a>
-                  {% else %}
-                    <span>UNK</span>
-                  {% endif %}
-                  {% if item.snr_towards and loop.index0 < item.snr_towards|length %}
-                    {{ snr_badge(item.snr_towards[loop.index0]) }}
-                  {% endif %}
-                </div>
-              {% endfor %}
-              {% if item.route_back %}
-                {# Destination node for forward path #}
-                <span class="mx-1">⇢</span>
-                <div class="d-inline-flex align-items-center">
-                  {% if tnodeid in nodes %}
-                    <a href="node_{{ tnodeid }}.html" class="text-decoration-none fw-bold">
-                      {{ nodes[tnodeid].short_name }}
-                    </a>
-                  {% else %}
-                    <span class="fw-bold">UNK</span>
-                  {% endif %}
+                {% set hnodeid = utils.convert_node_id_from_int_to_hex(hop) %}
+                {% set hnode = nodes[hnodeid] if hnodeid in nodes else None %}
+                {% if hnode %}
+                  <a href="/node_{{ hnodeid }}.html" 
+                     class="reception-badge {% if item.snr_towards and loop.index0 < item.snr_towards|length %}{% if item.snr_towards[loop.index0] > 0 %}snr-good{% elif item.snr_towards[loop.index0] > -5 %}snr-adequate{% elif item.snr_towards[loop.index0] > -10 %}snr-poor{% else %}snr-very-poor{% endif %}{% endif %}"
+                     data-toggle="popover"
+                     data-content="<div class='receiver-popover'>
+                         <strong>{{ hnode.long_name }}</strong><br>
+                         {% if item.snr_towards and loop.index0 < item.snr_towards|length %}
+                           SNR: {{ '%.1f'|format(item.snr_towards[loop.index0]) }}dB<br>
+                         {% endif %}
+                         {% if hnode.hw_model %}
+                           HW: {{ hnode.hw_model | safe_hw_model }}<br>
+                         {% endif %}
+                         {% if hnode.firmware_version %}
+                           FW: {{ hnode.firmware_version }}<br>
+                         {% endif %}
+                         {% if hnode.role is not none %}
+                           Role: {{ utils.get_role_name(hnode.role) }}<br>
+                         {% endif %}
+                         {% if hnode.owner_username %}
+                           Owner: {{ hnode.owner_username }}<br>
+                         {% endif %}
+                         Last Seen: {{ time_ago(hnode.ts_seen) }}
+                     </div>">
+                     {% if item.snr_towards and loop.index0 < item.snr_towards|length %}<span class="snr-indicator"></span>{% endif %}
+                     {{ hnode.short_name }}
+                  </a>
+                {% else %}
+                  <span class="reception-badge">
+                    {{ "UNK" }}
+                  </span>
                 {% endif %}
-              </div>
+              {% endfor %}
+              
+              {# Destination node for forward path #}
+              <span class="mx-1">⇢</span>
+              {% if tnodeid in nodes %}
+                <a href="/node_{{ tnodeid }}.html" 
+                   class="reception-badge"
+                   data-toggle="popover"
+                   data-content="<div class='receiver-popover'>
+                       <strong>{{ nodes[tnodeid].long_name }}</strong><br>
+                       {% if nodes[tnodeid].hw_model %}
+                         HW: {{ nodes[tnodeid].hw_model | safe_hw_model }}<br>
+                       {% endif %}
+                       {% if nodes[tnodeid].firmware_version %}
+                         FW: {{ nodes[tnodeid].firmware_version }}<br>
+                       {% endif %}
+                       {% if nodes[tnodeid].role is not none %}
+                         Role: {{ utils.get_role_name(nodes[tnodeid].role) }}<br>
+                       {% endif %}
+                       {% if nodes[tnodeid].owner_username %}
+                         Owner: {{ nodes[tnodeid].owner_username }}<br>
+                       {% endif %}
+                       Last Seen: {{ time_ago(nodes[tnodeid].ts_seen) }}
+                   </div>">
+                   {{ nodes[tnodeid].short_name }}
+                </a>
+              {% else %}
+                <span class="reception-badge">
+                  {{ "UNK" }}
+                </span>
+              {% endif %}
             </div>
           </div>
 
@@ -98,49 +197,106 @@
               <span class="text-muted me-2" style="min-width: 70px;">Return:</span>
               <div class="d-flex align-items-center flex-wrap">
                 {# Return source (destination node) #}
-                <div class="d-inline-flex align-items-center me-2">
-                  {% if tnodeid in nodes %}
-                    <a href="node_{{ tnodeid }}.html" class="text-decoration-none fw-bold">
-                      {{ nodes[tnodeid].short_name }}
-                    </a>
-                    {% if item.route_back|length == 0 and item.snr_back %}
-                      {{ snr_badge(item.snr_back[0]) }}
-                    {% endif %}
-                  {% else %}
-                    <span class="fw-bold">UNK</span>
-                  {% endif %}
-                </div>
+                {% if tnodeid in nodes %}
+                  <a href="/node_{{ tnodeid }}.html" 
+                     class="reception-badge {% if item.route_back|length == 0 and item.snr_back %}{% if item.snr_back[0] > 0 %}snr-good{% elif item.snr_back[0] > -5 %}snr-adequate{% elif item.snr_back[0] > -10 %}snr-poor{% else %}snr-very-poor{% endif %}{% endif %}"
+                     data-toggle="popover"
+                     data-content="<div class='receiver-popover'>
+                         <strong>{{ nodes[tnodeid].long_name }}</strong><br>
+                         {% if item.route_back|length == 0 and item.snr_back %}
+                           SNR: {{ '%.1f'|format(item.snr_back[0]) }}dB<br>
+                         {% endif %}
+                         {% if nodes[tnodeid].hw_model %}
+                           HW: {{ nodes[tnodeid].hw_model | safe_hw_model }}<br>
+                         {% endif %}
+                         {% if nodes[tnodeid].firmware_version %}
+                           FW: {{ nodes[tnodeid].firmware_version }}<br>
+                         {% endif %}
+                         {% if nodes[tnodeid].role is not none %}
+                           Role: {{ utils.get_role_name(nodes[tnodeid].role) }}<br>
+                         {% endif %}
+                         {% if nodes[tnodeid].owner_username %}
+                           Owner: {{ nodes[tnodeid].owner_username }}<br>
+                         {% endif %}
+                         Last Seen: {{ time_ago(nodes[tnodeid].ts_seen) }}
+                     </div>">
+                     {% if item.route_back|length == 0 and item.snr_back %}<span class="snr-indicator"></span>{% endif %}
+                     {{ nodes[tnodeid].short_name }}
+                  </a>
+                {% else %}
+                  <span class="reception-badge">
+                    {{ "UNK" }}
+                  </span>
+                {% endif %}
 
                 {# Return hops #}
                 {% for hop in item.route_back %}
                   <span class="mx-1">⇢</span>
-                  <div class="d-inline-flex align-items-center me-2">
-                    {% set hnodeid = utils.convert_node_id_from_int_to_hex(hop) %}
-                    {% set hnode = nodes[hnodeid] if hnodeid in nodes else None %}
-                    {% if hnode %}
-                      <a href="node_{{ hnodeid }}.html" class="text-decoration-none">
-                        {{ hnode.short_name }}
-                      </a>
-                    {% else %}
-                      <span>UNK</span>
-                    {% endif %}
-                    {% if item.snr_back and loop.index0 < item.snr_back|length %}
-                      {{ snr_badge(item.snr_back[loop.index0]) }}
-                    {% endif %}
-                  </div>
+                  {% set hnodeid = utils.convert_node_id_from_int_to_hex(hop) %}
+                  {% set hnode = nodes[hnodeid] if hnodeid in nodes else None %}
+                  {% if hnode %}
+                    <a href="/node_{{ hnodeid }}.html" 
+                       class="reception-badge {% if item.snr_back and loop.index0 < item.snr_back|length %}{% if item.snr_back[loop.index0] > 0 %}snr-good{% elif item.snr_back[loop.index0] > -5 %}snr-adequate{% elif item.snr_back[loop.index0] > -10 %}snr-poor{% else %}snr-very-poor{% endif %}{% endif %}"
+                       data-toggle="popover"
+                       data-content="<div class='receiver-popover'>
+                           <strong>{{ hnode.long_name }}</strong><br>
+                           {% if item.snr_back and loop.index0 < item.snr_back|length %}
+                             SNR: {{ '%.1f'|format(item.snr_back[loop.index0]) }}dB<br>
+                           {% endif %}
+                           {% if hnode.hw_model %}
+                             HW: {{ hnode.hw_model | safe_hw_model }}<br>
+                           {% endif %}
+                           {% if hnode.firmware_version %}
+                             FW: {{ hnode.firmware_version }}<br>
+                           {% endif %}
+                           {% if hnode.role is not none %}
+                             Role: {{ utils.get_role_name(hnode.role) }}<br>
+                           {% endif %}
+                           {% if hnode.owner_username %}
+                             Owner: {{ hnode.owner_username }}<br>
+                           {% endif %}
+                           Last Seen: {{ time_ago(hnode.ts_seen) }}
+                       </div>">
+                       {% if item.snr_back and loop.index0 < item.snr_back|length %}<span class="snr-indicator"></span>{% endif %}
+                       {{ hnode.short_name }}
+                    </a>
+                  {% else %}
+                    <span class="reception-badge">
+                      {{ "UNK" }}
+                    </span>
+                  {% endif %}
                 {% endfor %}
 
                 {# Return destination (source node) #}
                 <span class="mx-1">⇢</span>
-                <div class="d-inline-flex align-items-center">
-                  {% if fnodeid in nodes %}
-                    <a href="node_{{ fnodeid }}.html" class="text-decoration-none fw-bold">
-                      {{ nodes[fnodeid].short_name }}
-                    </a>
-                  {% else %}
-                    <span class="fw-bold">UNK</span>
-                  {% endif %}
-                </div>
+                {% if fnodeid in nodes %}
+                  <a href="/node_{{ fnodeid }}.html" 
+                     class="reception-badge"
+                     data-toggle="popover"
+                     data-content="<div class='receiver-popover'>
+                         <strong>{{ nodes[fnodeid].long_name }}</strong><br>
+                         {% if nodes[fnodeid].hw_model %}
+                           HW: {{ nodes[fnodeid].hw_model | safe_hw_model }}<br>
+                         {% endif %}
+                         {% if nodes[fnodeid].firmware_version %}
+                           FW: {{ nodes[fnodeid].firmware_version }}<br>
+                         {% endif %}
+                         {% if nodes[fnodeid].role is not none %}
+                           Role: {{ utils.get_role_name(nodes[fnodeid].role) }}<br>
+                         {% endif %}
+                         {% if nodes[fnodeid].owner_username %}
+                           Owner: {{ nodes[fnodeid].owner_username }}<br>
+                         {% endif %}
+                         Last Seen: {{ time_ago(nodes[fnodeid].ts_seen) }}
+                     </div>">
+                     {% if item.route_back|length == 0 and item.snr_back %}<span class="snr-indicator"></span>{% endif %}
+                     {{ nodes[fnodeid].short_name }}
+                  </a>
+                {% else %}
+                  <span class="reception-badge">
+                    {{ "UNK" }}
+                  </span>
+                {% endif %}
               </div>
             </div>
           {% endif %}
@@ -154,6 +310,13 @@
             </div>
           {% else %}
             {{ item.route|length }}
+          {% endif %}
+        </td>
+        <td>
+          {% if item.channel is not none %}
+          <span style="background-color: {{ utils.get_channel_color(item.channel) }}; color: white; padding: 2px 6px; border-radius: 4px;" title="Channel {{ item.channel }} ({{ utils.get_channel_name(item.channel) }})">
+            {{ utils.get_channel_name(item.channel, use_short_names=True) }}
+          </span>
           {% endif %}
         </td>
         {# <td class="text-center">

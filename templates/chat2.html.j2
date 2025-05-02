@@ -82,54 +82,199 @@ window.addEventListener('load', function() {
         {% for message in chat %}
         <div class="message-container">
             <div class="message-bubble">
-                <div class="message-header">
-                    <span class="message-sender">
-                        {% if message.from in nodes %}
-                            <a href="/node_{{ message.from }}.html" 
-                            class="node-link"
-                            data-toggle="popover"
-                            data-content="<div class='receiver-popover'>
-                                <strong>{{ nodes[message.from].long_name }}</strong><br>
-                                {% if nodes[message.from].description %}
-                                {{ nodes[message.from].description }}<br>
-                                {% endif %}
-                                {% if nodes[message.from].position and nodes[message.from].position.latitude is not none and nodes[message.from].position.longitude is not none %}
-                                Lat: {{ '%.5f'|format(nodes[message.from].position.latitude) }}<br>
-                                Lon: {{ '%.5f'|format(nodes[message.from].position.longitude) }}<br>
-                                {% if nodes[message.from].position.altitude is not none %}
-                                Alt: {{ nodes[message.from].position.altitude }}m<br>
-                                {% endif %}
-                                {% endif %}
-                                {% if nodes[message.from].owner %}
-                                Owner: {{ nodes[message.from].owner }}
-                                {% endif %}">
-                                {{ nodes[message.from].long_name }} ({{ nodes[message.from].short_name }})
-                            </a>
-                        {% else %}
-                            {{ message.from }}
+                <div class="message-header d-flex justify-content-between align-items-center"> {# Make header a flex container #}
+                    {# Group 1: Sender and optional Recipient #}
+                    <div class="d-flex align-items-center"> {# Container for left-aligned items #}
+                        {# Sender Span (Always Shown) #}
+                        <span class="message-sender">
+                            {% if message.from in nodes %}
+                                <a href="/node_{{ message.from }}.html"
+                                class="node-link"
+                                data-toggle="popover"
+                                data-content="<div class='receiver-popover'>
+                                    <strong>{{ nodes[message.from].long_name }}</strong><br>
+
+                                    {# Hardware Info #}
+                                    {% if nodes[message.from].hw_model %}
+                                        HW: {{ meshtastic_support.get_hardware_model_name(nodes[message.from].hw_model) }}<br>
+                                    {% endif %}
+                                    {% if nodes[message.from].firmware_version %}
+                                        FW: {{ nodes[message.from].firmware_version }}<br>
+                                    {% endif %}
+
+                                    {# --- Start Role Display --- #}
+                                    {% if nodes[message.from].role is not none %}
+                                        Role: 
+                                        {% set role_val = nodes[message.from].role %}
+                                        {% if role_val == 0 %}Client
+                                        {% elif role_val == 1 %}Client Mute
+                                        {% elif role_val == 2 %}Router
+                                        {% elif role_val == 3 %}Router Client
+                                        {% elif role_val == 4 %}Repeater
+                                        {% elif role_val == 5 %}Tracker
+                                        {% elif role_val == 6 %}Sensor
+                                        {% elif role_val == 7 %}ATAK
+                                        {% elif role_val == 8 %}Client Hidden
+                                        {% elif role_val == 9 %}Lost and Found
+                                        {% elif role_val == 10 %}ATAK Tracker
+                                        {% else %}Unknown ({{ role_val }})
+                                        {% endif %}<br>
+                                    {% endif %}
+                                    {# --- End Role Display --- #}
+
+                                    {# Owner #}
+                                    {% if nodes[message.from].owner_username %}
+                                        Owner: {{ nodes[message.from].owner_username }}<br>
+                                    {% endif %}
+
+                                    {# Location #}
+                                    {% if nodes[message.from].position %}
+                                        {% if nodes[message.from].position.geocoded %}
+                                            Loc: {{ nodes[message.from].position.geocoded }}<br>
+                                        {% elif nodes[message.from].position.latitude is not none and nodes[message.from].position.longitude is not none %}
+                                            Lat: {{ '%.5f'|format(nodes[message.from].position.latitude) }}, Lon: {{ '%.5f'|format(nodes[message.from].position.longitude) }}
+                                            {% if nodes[message.from].position.altitude is not none %}
+                                                Alt: {{ nodes[message.from].position.altitude }}m
+                                            {% endif %}<br>
+                                        {% endif %}
+                                    {% endif %}
+
+                                    {# Telemetry Status #}
+                                    {% if nodes[message.from].telemetry %}
+                                        {% if nodes[message.from].telemetry.battery_level is not none %}
+                                            Batt: {{ nodes[message.from].telemetry.battery_level }}%
+                                            {% if nodes[message.from].telemetry.voltage is not none %}
+                                                ({{ '%.2f'|format(nodes[message.from].telemetry.voltage) }}V)
+                                            {% endif %}<br>
+                                        {% elif nodes[message.from].telemetry.voltage is not none %}
+                                            Voltage: {{ '%.2f'|format(nodes[message.from].telemetry.voltage) }}V<br>
+                                        {% endif %}
+                                        {# Optional: Environmentals #}
+                                        {% if nodes[message.from].telemetry.temperature is not none %} Temp: {{ '%.1f'|format(nodes[message.from].telemetry.temperature) }}&deg;C {% endif %}
+                                        {% if nodes[message.from].telemetry.relative_humidity is not none %} RH: {{ '%.1f'|format(nodes[message.from].telemetry.relative_humidity) }}% {% endif %}
+                                        {% if nodes[message.from].telemetry.barometric_pressure is not none %} Pres: {{ '%.1f'|format(nodes[message.from].telemetry.barometric_pressure / 100) }}hPa {% endif %} {# Assuming pressure is in Pa #}
+                                        {% if nodes[message.from].telemetry.temperature is not none or nodes[message.from].telemetry.relative_humidity is not none or nodes[message.from].telemetry.barometric_pressure is not none %}<br>{% endif %}
+                                    {% endif %}
+
+                                    {# Last Seen #}
+                                    Last Seen: {{ time_ago(nodes[message.from].ts_seen) }}
+                                </div>">
+                                    {{ nodes[message.from].long_name }} ({{ nodes[message.from].short_name }})
+                                </a>
+                            {% else %}
+                                {{ message.from }}
+                            {% endif %}
+                        </span>
+
+                        {# Direct Message Indicator and Recipient (Conditional) #}
+                        {% if message.to != 'ffffffff' and message.to in nodes %}
+                            <span class="dm-indicator mx-1" data-toggle="tooltip" data-placement="top" title="Direct Message">
+                                <i class="bi bi-arrow-right-short"></i>
+                            </span>
+                            <span class="message-recipient">
+                                <a href="/node_{{ message.to }}.html"
+                                    class="node-link"
+                                    data-toggle="popover"
+                                    data-content="<div class='receiver-popover'>
+                                        <strong>{{ nodes[message.to].long_name }}</strong><br>
+
+                                        {# Hardware Info #}
+                                        {% if nodes[message.to].hw_model %}
+                                            HW: {{ meshtastic_support.get_hardware_model_name(nodes[message.to].hw_model) }}<br>
+                                        {% endif %}
+                                        {% if nodes[message.to].firmware_version %}
+                                            FW: {{ nodes[message.to].firmware_version }}<br>
+                                        {% endif %}
+
+                                        {# Role Display #}
+                                        {% if nodes[message.to].role is not none %}
+                                            Role: 
+                                            {% set role_val = nodes[message.to].role %}
+                                            {% if role_val == 0 %}Client
+                                            {% elif role_val == 1 %}Client Mute
+                                            {% elif role_val == 2 %}Router
+                                            {% elif role_val == 3 %}Router Client
+                                            {% elif role_val == 4 %}Repeater
+                                            {% elif role_val == 5 %}Tracker
+                                            {% elif role_val == 6 %}Sensor
+                                            {% elif role_val == 7 %}ATAK
+                                            {% elif role_val == 8 %}Client Hidden
+                                            {% elif role_val == 9 %}Lost and Found
+                                            {% elif role_val == 10 %}ATAK Tracker
+                                            {% else %}Unknown ({{ role_val }})
+                                            {% endif %}<br>
+                                        {% endif %}
+
+                                        {# Owner #}
+                                        {% if nodes[message.to].owner_username %}
+                                            Owner: {{ nodes[message.to].owner_username }}<br>
+                                        {% elif nodes[message.to].owner %}
+                                            Owner: {{ nodes[message.to].owner }}<br> {# Fallback to email #}
+                                        {% endif %}
+
+                                        {# Location #}
+                                        {% if nodes[message.to].position %}
+                                            {% if nodes[message.to].position.geocoded %}
+                                                Loc: {{ nodes[message.to].position.geocoded }}<br>
+                                            {% elif nodes[message.to].position.latitude is not none and nodes[message.to].position.longitude is not none %}
+                                                Lat: {{ '%.5f'|format(nodes[message.to].position.latitude) }}, Lon: {{ '%.5f'|format(nodes[message.to].position.longitude) }}
+                                                {% if nodes[message.to].position.altitude is not none %}
+                                                    Alt: {{ nodes[message.to].position.altitude }}m
+                                                {% endif %}<br>
+                                            {% endif %}
+                                        {% endif %}
+
+                                        {# Telemetry Status #}
+                                        {% if nodes[message.to].telemetry %}
+                                            {% if nodes[message.to].telemetry.battery_level is not none %}
+                                                Batt: {{ nodes[message.to].telemetry.battery_level }}%
+                                                {% if nodes[message.to].telemetry.voltage is not none %}
+                                                    ({{ '%.2f'|format(nodes[message.to].telemetry.voltage) }}V)
+                                                {% endif %}<br>
+                                            {% elif nodes[message.to].telemetry.voltage is not none %}
+                                                Voltage: {{ '%.2f'|format(nodes[message.to].telemetry.voltage) }}V<br>
+                                            {% endif %}
+                                            {# Optional: Environmentals #}
+                                            {% if nodes[message.to].telemetry.temperature is not none %} Temp: {{ '%.1f'|format(nodes[message.to].telemetry.temperature) }}&deg;C {% endif %}
+                                            {% if nodes[message.to].telemetry.relative_humidity is not none %} RH: {{ '%.1f'|format(nodes[message.to].telemetry.relative_humidity) }}% {% endif %}
+                                            {% if nodes[message.to].telemetry.barometric_pressure is not none %} Pres: {{ '%.1f'|format(nodes[message.to].telemetry.barometric_pressure / 100) }}hPa {% endif %}
+                                            {% if nodes[message.to].telemetry.temperature is not none or nodes[message.to].telemetry.relative_humidity is not none or nodes[message.to].telemetry.barometric_pressure is not none %}<br>{% endif %}
+                                        {% endif %}
+
+                                        {# Last Seen #}
+                                        Last Seen: {{ time_ago(nodes[message.to].ts_seen) }}
+                                    </div>">
+                                    {{ nodes[message.to].long_name }} ({{ nodes[message.to].short_name }})
+                                </a>
+                            </span>
                         {% endif %}
-                    </span>
-                    <span class="message-channel">Ch {{ message.channel }}</span>
-                    <span class="message-timestamp" title="{{ format_timestamp(message.ts_created) }}">
-                        {{ time_ago(message.ts_created) }}
-                    </span>
-                    {% if message.from in nodes and nodes[message.from].position and message.receptions %}
-                    <a href="/message_map.html?id={{ message.message_id }}" 
-                       class="map-link" 
-                       title="View Message Propagation">
-                        <i class="bi bi-map"></i>
-                    </a>
-                    {% else %}
-                    <span class="map-link-placeholder"></span>
-                    {% endif %}
+                        {# End DM Indicator #}
+                    </div>
+
+                    {# Group 2: Channel, Timestamp, Map Icon #}
+                    <div class="d-flex align-items-center"> {# Container for right-aligned items #}
+                        <span class="message-channel me-2" style="background-color: {{ utils.get_channel_color(message.channel) }}; color: white; padding: 2px 6px; border-radius: 4px;" title="Channel {{ message.channel }} ({{ utils.get_channel_name(message.channel) }})">{{ utils.get_channel_name(message.channel, use_short_names=True) }}</span>
+                        <span class="message-timestamp me-2" title="{{ format_timestamp(message.ts_created) }}">
+                            {{ time_ago(message.ts_created) }}
+                        </span>
+                        {% if message.from in nodes and nodes[message.from].position and message.receptions %}
+                        <a href="/message_map.html?id={{ message.message_id }}"
+                        class="map-link"
+                        title="View Message Propagation">
+                            <i class="bi bi-map"></i>
+                        </a>
+                        {% else %}
+                        <span class="map-link-placeholder"></span>
+                        {% endif %}
+                    </div>
                 </div>
                 <div class="message-content">
                     {{ message.text }}
                 </div>
                 {% if message.receptions %}
-                <div class="message-receptions">
+                <div class="message-receptions" style="width: 100%; display: flex; flex-wrap: wrap; gap: 2px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(0, 0, 0, 0.1);">
                     <!-- Desktop View (existing) -->
-                    <div class="desktop-receptions">
+                    <div class="desktop-receptions" style="display: flex; flex-wrap: wrap; gap: 2px; width: 100%;">
                         {% for reception in message.receptions %}
                             {% set node_id = utils.convert_node_id_from_int_to_hex(reception.node_id) %}
                             {% if node_id in nodes %}
@@ -200,5 +345,11 @@ window.addEventListener('load', function() {
         </button>
     </div>
     {% endif %}
+
+    <div class="text-center mt-4">
+        <a href="/chat-classic.html" class="btn btn-outline-secondary btn-sm">
+            Classic Chat
+        </a>
+    </div>
 </div>
 {% endblock %}

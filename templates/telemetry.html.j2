@@ -11,6 +11,7 @@
       <tr>
         <th scope="col">Timestamp</th>
         <th scope="col">Node</th>
+        <th scope="col">Ch</th>
         <th scope="col">
           <img src="images/icons/up.svg" alt="Air Util TX" title="Air Util TX" style="height:18px">
         </th>
@@ -56,6 +57,14 @@
           <a href="node_{{ inodeid }}.html">{{ inode.short_name }}</a>
           {% else %}
           <span>UNK</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if item.channel is not none %}
+          <span style="background-color: {{ utils.get_channel_color(item.channel) }}; color: white; padding: 2px 6px; border-radius: 4px;" 
+                title="Channel {{ item.channel }} ({{ utils.get_channel_name(item.channel) }})">
+            {{ utils.get_channel_name(item.channel, use_short_names=True) }}
+          </span>
           {% endif %}
         </td>
         <td>

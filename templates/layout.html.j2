@@ -4,13 +4,13 @@
 {% macro snr_badge(snr) %}
   {% if snr is not none %}  {# Check if snr exists and is not None #}
     {% if snr > 0 %}
-      <span class="badge snr-good ms-1" title="Signal-to-Noise Ratio: Good">{{ "%.1f"|format(snr) }} dB</span>
+      <span class="badge snr-good mx-2" title="Signal-to-Noise Ratio: Good">{{ "%.1f"|format(snr) }} dB</span>
     {% elif snr > -5 %}
-      <span class="badge snr-adequate ms-1" title="Signal-to-Noise Ratio: Adequate">{{ "%.1f"|format(snr) }} dB</span>
+      <span class="badge snr-adequate mx-2" title="Signal-to-Noise Ratio: Adequate">{{ "%.1f"|format(snr) }} dB</span>
     {% elif snr > -10 %}
-      <span class="badge snr-poor ms-1" title="Signal-to-Noise Ratio: Poor">{{ "%.1f"|format(snr) }} dB</span>
+      <span class="badge snr-poor mx-2" title="Signal-to-Noise Ratio: Poor">{{ "%.1f"|format(snr) }} dB</span>
     {% else %}
-      <span class="badge snr-very-poor ms-1" title="Signal-to-Noise Ratio: Very Poor">{{ "%.1f"|format(snr) }} dB</span>
+      <span class="badge snr-very-poor mx-2" title="Signal-to-Noise Ratio: Very Poor">{{ "%.1f"|format(snr) }} dB</span>
     {% endif %}
   {% endif %}
 {% endmacro %}
@@ -36,7 +36,7 @@
     <div class="collapse navbar-collapse" id="navbarToggler">
       <a class="navbar-brand" href="{{  config["mesh"]["url"] }}">{{ config["mesh"]["name"] }}</a>
       <ul class="navbar-nav mr-auto mt-2 mt-lg-0">
-        {% for page in ["chat", "graph", "map", "nodes", "neighbors", "telemetry", "traceroutes", "logs"] %}
+        {% for page in ["chat", "graph", "map", "nodes", "neighbors", "telemetry", "traceroutes", "logs","metrics"] %}
         <li class="nav-item{% if page == this_page %} active{% endif %}">
           <a class="nav-link" href="{{ page }}.html">{{ page.title() }}</a>
         </li>

@@ -105,25 +105,14 @@
           <tr>
             <th scope="row" style="background: #F2F6F9; text-align: left;">Hardware</th>
             <td class="text-left">
-              {% if node.hw_model %}
-              {% if node.hw_model in meshtastic_support.HardwareModel._value2member_map_ %}
-              {% if meshtastic_support.HardwareModel(node.hw_model) and meshtastic_support.HardwareModel(node.hw_model)
-              in
-              meshtastic_support.HARDWARE_PHOTOS %}
+              {% if node.hw_model is not none and meshtastic_support.HardwareModel(node.hw_model) in meshtastic_support.HARDWARE_PHOTOS %}
               <img
                 src="images/hardware/{{ meshtastic_support.HARDWARE_PHOTOS[meshtastic_support.HardwareModel(node.hw_model)] }}"
-                alt="{{ meshtastic_support.HardwareModel(node.hw_model).name }}"
-                title="{{ meshtastic_support.HardwareModel(node.hw_model).name }}" class="rounded"
+                alt="{{ meshtastic_support.get_hardware_model_name(node.hw_model) }}"
+                title="{{ meshtastic_support.get_hardware_model_name(node.hw_model) }}" class="rounded"
                 style="max-height: 100px;">
-              {% else %}
-              {{ meshtastic_support.HardwareModel(node.hw_model).name }}
               {% endif %}
-              {% else %}
-              {{ node.hw_model }}
-              {% endif %}
-              {% else %}
-              Unknown
-              {% endif %}
+              {{ meshtastic_support.get_hardware_model_name(node.hw_model) }}
             </td>
           </tr>
           <tr>
@@ -464,7 +453,7 @@
     </div>
   </div>
   {% if los_profiles %}
-  <div class="w-100 mt-2 text-center fw-bold p-2" style="background: #D7F9FF;">Line-of-sight with nodes in 20km radius</div>
+  <div class="w-100 mt-2 text-center fw-bold p-2" style="background: #D7F9FF;">Line-of-sight with nodes in {{ max_distance | round(2) }} km radius</div>
   <div class="row">
     {% for id, data in los_profiles.items()|sort(attribute='1.distance') %}
     <div class="col-sm-6 p-2">
@@ -517,7 +506,7 @@
   var node = {
     id: '{{ node.id }}',
     short_name: '{{ node.short_name }}',
-    long_name: '{{ node.long_name }}',
+    long_name: '{{ node.long_name | e }}',
     last_seen: '{{ node.last_seen }}',
     position: {
       latitude: 38.575764,

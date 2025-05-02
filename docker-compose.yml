@@ -9,6 +9,7 @@ services:
       MYSQL_PASSWORD: passw0rd
     volumes:
       - ./mysql_data:/var/lib/mysql
+      - ./custom.cnf:/etc/mysql/conf.d/custom.cnf
     networks:
       - backend
   meshinfo:
@@ -19,6 +20,7 @@ services:
       - mariadb
     volumes:
       - ./config.ini:/app/config.ini
+      - ./srtm_data:/app/srtm_data
     environment:
       - PYTHONUNBUFFERED=1
     ports:

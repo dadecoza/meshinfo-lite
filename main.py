@@ -1,6 +1,3 @@
-import meshinfo_web
-import meshinfo_mqtt
-from meshdata import MeshData, create_database
 import threading
 import logging
 import colorlog
@@ -45,6 +42,11 @@ def setup_logger():
 
     return logger
 
+logger = setup_logger()
+
+import meshinfo_web
+import meshinfo_mqtt
+from meshdata import MeshData, create_database
 
 def check_pid(pid):
     """ Check For the existence of a unix pid. """
@@ -85,7 +87,7 @@ fh = open(pidfile, "w")
 fh.write(str(os.getpid()))
 fh.close()
 
-logger = setup_logger()
+
 config_file = "config.ini"
 
 if not os.path.isfile(config_file):
