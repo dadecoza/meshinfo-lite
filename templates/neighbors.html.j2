@@ -179,6 +179,9 @@
           </td>
           
           <td>
+            {% if node.channel is not none %}
+            <span class="message-channel" style="background-color: {{ utils.get_channel_color(node.channel) }}; color: white; padding: 2px 6px; border-radius: 4px;" title="Channel {{ node.channel }} ({{ utils.get_channel_name(node.channel) }})">{{ utils.get_channel_name(node.channel, use_short_names=True) }}</span>
+            {% endif %}
             <span title="{{ format_timestamp(node.ts_seen) }}">
               {{ time_ago(node.ts_seen) }}
             </span>

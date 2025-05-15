@@ -12,8 +12,6 @@ services:
       - ./custom.cnf:/etc/mysql/conf.d/custom.cnf
     networks:
       - backend
-    labels:
-      - "com.centurylinklabs.watchtower.enable=false"
   meshinfo:
     build:
       context: .
@@ -30,8 +28,6 @@ services:
     networks:
       - backend
     restart: always
-    labels:
-      - "com.centurylinklabs.watchtower.enable=false" 
 networks:       
   backend:
     driver: bridge
