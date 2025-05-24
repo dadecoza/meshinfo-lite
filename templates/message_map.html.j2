@@ -26,13 +26,17 @@
         <br>
         <strong>Time:</strong> {{ format_timestamp(message.ts_created) }}<br>
         <strong>Message:</strong> {{ message.text }}
+        {% if sender_position and sender_position.position_time %}
+        <br>
+        <strong>Sender Position Updated:</strong> {{ format_timestamp(sender_position.position_time) }}
+        {% endif %}
       </p>
     </div>
   </div>
 
   <div id="map" style="height: 70vh; width: 100%;"></div>
   
-  <div id="legend" class="p-2" style="background-color: #ffffff;">
+  <div id="legend" class="p-2 mt-3" style="background-color: #ffffff; border-radius: 4px; box-shadow: 0 1px 4px rgba(0,0,0,0.2);">
     <div>LEGEND</div>
     <div>
       <div style="background-color: #FF6666; height: 4px; width: 25px; display: inline-flex;"></div> Direct Reception
@@ -91,85 +95,111 @@
     ) * 111.32 * 100) / 100;  // Convert to km and round to 2 decimal places
   }
 
+  // Add function to format timestamp
+  function formatTimestamp(timestamp) {
+    if (!timestamp) return 'Unknown';
+    const date = new Date(timestamp * 1000);
+    return date.toLocaleString();
+  }
+
   const features = [];
   const lines = [];
   const labels = [];
-  
-  // Add sender
-  {% set from_id = utils.convert_node_id_from_int_to_hex(message.from_id) %}
-  {% if from_id in nodes and nodes[from_id].position and nodes[from_id].position.longitude_i is not none and nodes[from_id].position.latitude_i is not none %}
-    var sender = new ol.Feature({
+  let senderFeature = null;
+
+  // Add sender using sender_position
+  {% set from_id_hex = utils.convert_node_id_from_int_to_hex(message.from_id) %}
+  {% if sender_position and sender_position.longitude_i is not none and sender_position.latitude_i is not none %}
+    senderFeature = new ol.Feature({
         geometry: new ol.geom.Point(ol.proj.fromLonLat([
-            {{ nodes[from_id].position.longitude_i / 10000000 }},
-            {{ nodes[from_id].position.latitude_i / 10000000 }}
+            {{ sender_position.longitude_i / 10000000 }},
+            {{ sender_position.latitude_i / 10000000 }}
         ])),
         node: {
-            id: '{{ from_id }}',
-            name: '{{ nodes[from_id].short_name }}',
-            longName: '{{ nodes[from_id].long_name }}',
+            id: '{{ from_id_hex }}',
+            {# Get names from the main nodes dict #}
+            name: '{{ nodes[from_id_hex].short_name if from_id_hex in nodes else "???" }}',
+            longName: '{{ nodes[from_id_hex].long_name if from_id_hex in nodes else "Unknown Sender" }}',
             type: 'sender',
-            lat: {{ nodes[from_id].position.latitude_i / 10000000 }},
-            lon: {{ nodes[from_id].position.longitude_i / 10000000 }}
+            lat: {{ sender_position.latitude_i / 10000000 }},
+            lon: {{ sender_position.longitude_i / 10000000 }},
+            positionTime: {{ sender_position.position_time }}
         }
-        });
-    sender.setStyle(senderStyle);
-    features.push(sender);
+    });
+    senderFeature.setStyle(senderStyle);
+    features.push(senderFeature);
     
-    // Add receivers and lines
-    {% for reception in message.receptions %}
-      {% set rid = utils.convert_node_id_from_int_to_hex(reception.node_id) %}
-      {% if rid in nodes and nodes[rid].position and nodes[rid].position.longitude_i is not none and nodes[rid].position.latitude_i is not none %}
+    // Add receivers and lines - only if sender position is known
+    {% for receiver_id in message.receiver_ids %}
+      var currentReceiverId = {{ receiver_id }}; // Store JS variable for clarity
+      console.log("Processing Receiver ID:", currentReceiverId);
+
+      {# Use receiver_positions dict for location #}
+      {% set receiver_pos = receiver_positions.get(receiver_id) %}
+      var receiverPosData = {{ receiver_pos | tojson if receiver_pos is defined else 'null' }};
+      console.log(" -> Position data from backend:", receiverPosData);
+      {% if receiver_pos and receiver_pos.longitude_i is not none and receiver_pos.latitude_i is not none %}
+        console.log(" -> Position check PASSED for", currentReceiverId);
+      try {
+        var lon = {{ receiver_pos.longitude_i / 10000000 }};
+        var lat = {{ receiver_pos.latitude_i / 10000000 }};
+        console.log(`   Coords: lon=${lon}, lat=${lat}`);
+
+        var pointGeom = new ol.geom.Point(ol.proj.fromLonLat([lon, lat]));
+        console.log("   Created ol.geom.Point");
+
+        {% set rid_hex = utils.convert_node_id_from_int_to_hex(receiver_id) %}
+        {% set details = receiver_details.get(receiver_id) %}
+        var nodeData = {
+            id: '{{ rid_hex }}',
+            name: '{{ nodes[rid_hex].short_name if rid_hex in nodes else "???" }}',
+            longName: '{{ nodes[rid_hex].long_name if rid_hex in nodes else "Unknown Receiver" }}',
+            snr: {{ details.rx_snr if details else 'null' }},
+            hops: {% if details and details.hop_start is not none and details.hop_limit is not none %}{{ details.hop_start - details.hop_limit }}{% else %}0{% endif %},
+            type: 'receiver',
+            lat: lat, // Use JS var
+            lon: lon, // Use JS var
+            positionTime: {{ receiver_pos.position_time }}
+        };
+        console.log("   Created nodeData object:", nodeData);
+
         var receiver = new ol.Feature({
-            geometry: new ol.geom.Point(ol.proj.fromLonLat([
-                {{ nodes[rid].position.longitude_i / 10000000 }},
-                {{ nodes[rid].position.latitude_i / 10000000 }}
-            ])),
-            node: {
-                id: '{{ rid }}',
-                name: '{{ nodes[rid].short_name }}',
-                longName: '{{ nodes[rid].long_name }}',
-                snr: {{ reception.rx_snr }},
-                hops: {% if reception.hop_start is not none %}{{ reception.hop_start - reception.hop_limit }}{% else %}0{% endif %},
-                type: 'receiver',
-                lat: {{ nodes[rid].position.latitude_i / 10000000 }},
-                lon: {{ nodes[rid].position.longitude_i / 10000000 }}
-            }
-            });
-        receiver.setStyle(receiverStyle);
-        features.push(receiver);
-        
-        // Calculate coordinates and distance
-        var fromCoord = [
-          {{ nodes[from_id].position.longitude_i / 10000000 }},
-          {{ nodes[from_id].position.latitude_i / 10000000 }}
-        ];
-        var toCoord = [
-          {{ nodes[rid].position.longitude_i / 10000000 }},
-          {{ nodes[rid].position.latitude_i / 10000000 }}
-        ];
-        
-        var distance = calculateDistance(fromCoord[1], fromCoord[0], toCoord[1], toCoord[0]);
-        var hops = {% if reception.hop_start is not none %}{{ reception.hop_start - reception.hop_limit }}{% else %}0{% endif %};
-        
-        // Create line
-        var points = [fromCoord, toCoord];
-        for (var i = 0; i < points.length; i++) {
-          points[i] = ol.proj.transform(points[i], 'EPSG:4326', 'EPSG:3857');
-        }
-        
-        var line = new ol.Feature({
-          geometry: new ol.geom.LineString(points)
+            geometry: pointGeom,
+            node: nodeData
         });
-        
+        console.log("   Created ol.Feature");
+
+        receiver.setStyle(receiverStyle);
+        console.log("   Set receiver style");
+
+        features.push(receiver);
+        console.log("   Pushed receiver feature to array. Current features count:", features.length);
+
+        // Line and Label creation (can add logs here too if needed)
+        var senderCoords = senderFeature.getGeometry().getCoordinates(); // Get projected coords
+        // Transform sender's projected coords back to LonLat for fromCoord
+        var fromCoordLonLat = ol.proj.transform(senderCoords, 'EPSG:3857', 'EPSG:4326');
+        var fromCoord = fromCoordLonLat; // Use LonLat for distance calculation
+
+        var toCoord = [lon, lat];
+        var distance = calculateDistance(fromCoord[1], fromCoord[0], toCoord[1], toCoord[0]);
+        var hops = nodeData.hops; // Use hops from nodeData
+
+        var points = [fromCoord, toCoord];
+        for (var i = 0; i < points.length; i++) { points[i] = ol.proj.transform(points[i], 'EPSG:4326', 'EPSG:3857'); }
+        var line = new ol.Feature({ geometry: new ol.geom.LineString(points) });
+
         var lineStyle = new ol.style.Style({
           stroke: new ol.style.Stroke({
-            color: {% if reception.hop_start is not none and reception.hop_start - reception.hop_limit > 0 %}'#6666FF'{% else %}'#FF6666'{% endif %},
+            color: {% if details and details.hop_start is not none and details.hop_limit is not none and (details.hop_start - details.hop_limit) > 0 %}'#6666FF'{% else %}'#FF6666'{% endif %}, // <-- Added comma here
             width: 2
           })
         });
-        
+
         line.setStyle(lineStyle);
         lines.push(line);
+        console.log("   Pushed line feature to array.");
+
 
         // Add label at the middle of the line
         var midPoint = [
@@ -209,40 +239,118 @@
             }));
         
         labels.push(label);
+        console.log("   Pushed label feature to array.");
+
+      } catch (e) {
+        console.error("   ERROR processing receiver", currentReceiverId, ":", e);
+      }
+      {% else %}
+        // This block is entered - position is missing or invalid
+        console.warn(" -> Position check FAILED for", currentReceiverId);
+        if (!receiverPosData) {
+            console.warn("    Reason: No position data found in receiver_positions dict.");
+        } else if (receiverPosData.longitude_i === null || receiverPosData.longitude_i === undefined ) {
+            console.warn("    Reason: longitude_i is null or undefined.");
+        } else if (receiverPosData.latitude_i === null || receiverPosData.latitude_i === undefined) {
+            console.warn("    Reason: latitude_i is null or undefined.");
+        } else {
+            console.warn("    Reason: Unknown (check receiverPosData object).");
+        }
       {% endif %}
     {% endfor %}
   {% endif %}
 
-  // Add features to map
-  const vectorLayer = new ol.layer.Vector({
-    source: new ol.source.Vector({
-      features: features.concat(lines).concat(labels)
-    })
-  });
-  map.addLayer(vectorLayer);
-  
-  // Fit map to features with minimum zoom
-    if (features.length > 0) {
-    var extent = vectorLayer.getSource().getExtent();
-    
-    // Get the current view
-    var view = map.getView();
-    
-    // Fit to extent with padding
-    view.fit(extent, {
-        padding: [100, 100, 100, 100],  // Increased padding
-        minResolution: 0.1,  // Ensures we don't zoom in too far
-        maxZoom: 19,  // Allow higher zoom for close nodes
-        duration: 500  // Smooth animation
-    });
+  console.log("Finished processing features. Total points:", features.length, "Total lines:", lines.length, "Total labels:", labels.length);
 
-    // If nodes are very close, ensure minimum zoom level
-    var resolution = view.getResolution();
-    if (resolution < 0.1) {  // If zoomed in too far
-        view.setResolution(0.1);  // Set minimum resolution
-        view.setCenter(ol.extent.getCenter(extent));  // Center on the features
+  // Combine features
+  const allFeatures = features.concat(lines).concat(labels);
+  console.log("Combined all features. Total count:", allFeatures.length);
+
+  // Create empty source first
+  const vectorSource = new ol.source.Vector();
+  console.log("Created empty vector source.");
+
+  // Add features explicitly AFTER loops finish
+  if (allFeatures.length > 0) {
+    vectorSource.addFeatures(allFeatures);
+    console.log(`Added ${allFeatures.length} features to vector source. Source now has ${vectorSource.getFeatures().length} features.`);
+  } else {
+    console.warn("No features were created to add to the source.");
+  }
+
+  // Create layer with the source
+  const vectorLayer = new ol.layer.Vector({
+    source: vectorSource,
+    // Declutter labels slightly
+    declutter: true
+  });
+  console.log("Created vector layer.");
+
+  map.addLayer(vectorLayer);
+  console.log("Added vector layer to map.");
+
+  // --- Debugging Map View ---
+  var view = map.getView();
+  console.log("Initial/Current Map View State:", JSON.stringify(view.getProperties()));
+
+  if (features.length > 0) {
+    console.log("Attempting to fit map view based on point features...");
+    const pointSourceForExtent = new ol.source.Vector({ features: features });
+    var extent = pointSourceForExtent.getExtent();
+    console.log("Calculated extent from points:", extent);
+
+    if (!ol.extent.isEmpty(extent) && isFinite(extent[0]) && isFinite(extent[1]) && isFinite(extent[2]) && isFinite(extent[3]) && extent[0] <= extent[2] && extent[1] <= extent[3])
+    {
+        console.log("Extent is valid. Fitting view...");
+        console.log("View state BEFORE fit:", JSON.stringify(view.getProperties()));
+        view.fit(extent, {
+            padding: [100, 100, 100, 100],
+            minResolution: view.getResolutionForZoom(19), // Use maxZoom resolution
+            maxZoom: 19,
+            duration: 500
+        });
+        console.log("Fit view called.");
+        // Log state immediately after fit call (may not reflect final state yet)
+        console.log("View state immediately AFTER fit call:", JSON.stringify(view.getProperties()));
+
+        // Log state after fit animation duration
+        setTimeout(() => {
+            console.log("View state AFTER fit timeout:", JSON.stringify(view.getProperties()));
+        }, 600); // Wait slightly longer than duration
+    } else {
+        console.warn("Calculated extent is invalid or empty. Cannot fit view. Extent:", extent);
     }
+  } else {
+      console.log("No point features found to fit view.");
+  }
+
+  // --- Add Render Complete Listener ---
+  map.once('rendercomplete', function() {
+    console.log("--- Map Render Complete ---");
+    try {
+      const mapLayers = map.getLayers().getArray();
+      console.log(`Map has ${mapLayers.length} layers.`);
+      if (mapLayers.length > 1) {
+        const potentialVectorLayer = mapLayers[1];
+        if (potentialVectorLayer instanceof ol.layer.Vector) {
+          const source = potentialVectorLayer.getSource();
+          const layerFeatures = source.getFeatures();
+          console.log(`Vector layer found. Contains ${layerFeatures.length} features.`);
+          if (layerFeatures.length > 0) {
+            console.log("First feature geom in layer:", layerFeatures[0].getGeometry().getCoordinates());
+          }
+        } else {
+          console.warn("Second layer is not a Vector layer:", potentialVectorLayer);
+        }
+      } else {
+          console.warn("Vector layer not found or only base layer exists.");
+      }
+      console.log("Final Map View State:", JSON.stringify(map.getView().getProperties()));
+    } catch(e) {
+      console.error("Error during rendercomplete check:", e);
     }
+    console.log("--- End Render Complete ---");
+  });
   
   // Add popup for node info
   var container = document.createElement('div');
@@ -301,6 +409,11 @@
         }
         }
         
+        // Add position time information
+        if (node.positionTime) {
+            html += `<strong>Position Updated:</strong> ${formatTimestamp(node.positionTime)}<br>`;
+        }
+        
         html += '</div>';
         
         content.innerHTML = html;
@@ -316,17 +429,12 @@
     height: 70vh;
     width: 100%;
     }
-    #legend {
-    position: absolute;
-    bottom: 20px;
-    right: 20px;
-    z-index: 1000;
-    }
+    
     .ol-popup {
     position: absolute;
     background-color: white;
     box-shadow: 0 1px 4px rgba(0,0,0,0.2);
-    padding: 0;  // Removed padding as it's now in the content div
+    padding: 0;
     border-radius: 10px;
     border: 1px solid #cccccc;
     bottom: 12px;

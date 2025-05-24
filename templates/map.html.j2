@@ -9,11 +9,107 @@
 
 {% block content %}
   <div id="map" class="map" style="height: 100vh"></div>
-  <div id="nodeDetail" class="ol-popup">
+  
+  {# Settings Toggle Button #}
+  <button id="settingsToggle" class="settings-toggle">
+    <i class="bi bi-gear-fill"></i>
+  </button>
+
+  {# Settings Panel - Hidden by default #}
+  <div id="settings" class="settings-panel" style="display: none;">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h5 class="m-0">Settings</h5>
+      <small class="text-muted">Changes are only saved in this browser.</small>
+    </div>
+    
+    <div class="mb-3">
+      <label class="form-label">Nodes Max Age</label>
+      <select id="nodesMaxAge" class="form-select form-select-sm">
+        <option value="900">15 minutes</option>
+        <option value="1800">30 minutes</option>
+        <option value="3600">1 hour</option>
+        <option value="10800">3 hours</option>
+        <option value="21600">6 hours</option>
+        <option value="43200">12 hours</option>
+        <option value="86400">24 hours</option>
+        <option value="172800">2 days</option>
+        <option value="259200">3 days</option>
+        <option value="345600">4 days</option>
+        <option value="432000">5 days</option>
+        <option value="518400">6 days</option>
+        <option value="604800">7 days</option>
+        <option value="0">Show All</option>
+      </select>
+      <small class="text-muted d-block">Nodes not updated within this time are hidden. Reload to update map.</small>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label">Nodes Disconnected Age</label>
+      <select id="nodesDisconnectedAge" class="form-select form-select-sm">
+        <option value="900">15 minutes</option>
+        <option value="1800">30 minutes</option>
+        <option value="3600">1 hour</option>
+        <option value="10800">3 hours</option>
+        <option value="21600">6 hours</option>
+        <option value="43200">12 hours</option>
+        <option value="86400">24 hours</option>
+        <option value="172800">2 days</option>
+        <option value="259200">3 days</option>
+        <option value="345600">4 days</option>
+        <option value="432000">5 days</option>
+        <option value="518400">6 days</option>
+        <option value="604800">7 days</option>
+      </select>
+      <small class="text-muted d-block">Nodes that are actively uplinking to MQTT will show as blue icons. Reload to update map.</small>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label">Nodes Offline Age</label>
+      <select id="nodesOfflineAge" class="form-select form-select-sm">
+        <option value="never">Don't show as offline</option>
+        <option value="900">15 minutes</option>
+        <option value="1800">30 minutes</option>
+        <option value="3600">1 hour</option>
+        <option value="10800">3 hours</option>
+        <option value="21600">6 hours</option>
+        <option value="43200">12 hours</option>
+        <option value="86400">24 hours</option>
+        <option value="172800">2 days</option>
+        <option value="259200">3 days</option>
+        <option value="345600">4 days</option>
+        <option value="432000">5 days</option>
+        <option value="518400">6 days</option>
+        <option value="604800">7 days</option>
+      </select>
+      <small class="text-muted d-block">Nodes not updated within this time will show as gray icons. Reload to update map.</small>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label">Channel</label>
+      <select id="channelFilter" class="form-select form-select-sm">
+        <option value="all">All Channels</option>
+        {% for channel in Channel %}
+          <option value="{{ channel.value }}">{{ utils.get_channel_name(channel.value) }} ({{ channel.value }})</option>
+        {% endfor %}
+      </select>
+      <small class="text-muted d-block">Filter nodes by communication channel.</small>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label">Neighbours Max Distance (meters)</label>
+      <input type="number" id="neighboursMaxDistance" class="form-control form-control-sm" value="5000" min="0" step="100">
+      <small class="text-muted d-block">Neighbours further than this are hidden. Reload to update map.</small>
+    </div>
+  </div>
+
+  {# Node Detail Popup #}
+  <div id="nodeDetail" class="ol-popup" style="display: none;">
     <a href="#" id="popup-closer" class="ol-popup-closer"></a>
     <div id="popup-content"></div>
   </div>
-  <div id="details" class="p-2" style="background-color: white;">
+
+  {# Node Info Panel - Hidden by default #}
+  <div id="details" class="node-info-panel" style="display: none;">
     <div>
       <div id="details-title"></div>
       <div id="details-subtitle"></div>
@@ -21,11 +117,11 @@
     <div id="details-content">
     </div>
   </div>
+
   <div id="legend" class="p-2" style="background-color: #ffffff;">
     <div>LEGEND</div>
     <div>
       <div style="background-color: #66FF66; height: 4px; width: 25px; display: inline-flex;"></div> Heard A Neighbor
-      <div</div>
     </div>
     <div>
       <div style="background-color: #6666FF; height: 4px; width: 25px; display: inline-flex;"></div> Heard By Neighbor
@@ -34,17 +130,85 @@
       <div style="background-color: #FF66FF; height: 4px; width: 25px; display: inline-flex;"></div> Both Heard Each Other
     </div>
   </div>
+
   <script type="module">
-    async function reverseGeocode(lon, lat) {
-      return fetch('https://nominatim.openstreetmap.org/reverse?format=json&lon=' + lon + '&lat=' + lat)
-        .then(function(response) {
-          return response.json();
-        }).then(function(json) {
-          console.log(json);
-          return json;
-        });
+    // Add settings toggle functionality
+    const settingsToggle = document.getElementById('settingsToggle');
+    const settingsPanel = document.getElementById('settings');
+    const nodeInfoPanel = document.getElementById('details');
+
+    // Initialize settings panel state from localStorage
+    let settingsPanelVisible = localStorage.getItem('settingsPanelVisible') === 'true';
+    settingsPanel.style.display = settingsPanelVisible ? 'block' : 'none';
+
+    settingsToggle.addEventListener('click', () => {
+      settingsPanelVisible = !settingsPanelVisible;
+      settingsPanel.style.display = settingsPanelVisible ? 'block' : 'none';
+      localStorage.setItem('settingsPanelVisible', settingsPanelVisible);
+    });
+
+    // Hide node info panel by default
+    nodeInfoPanel.style.display = 'none';
+
+    // Add channel color utility function
+    const channelColors = {
+      8: '#4CAF50',    // Green for LongFast
+      31: '#2196F3',   // Blue for MediumFast
+      112: '#FF9800',  // Orange for ShortFast
+    };
+
+    function getChannelColor(channelId) {
+      if (channelId in channelColors) {
+        return channelColors[channelId];
+      }
+      
+      // For unknown channels, generate a consistent color based on the channel ID
+      const hash = channelId.toString().split('').reduce((acc, char) => {
+        return char.charCodeAt(0) + ((acc << 5) - acc);
+      }, 0);
+      
+      const color = `hsl(${Math.abs(hash) % 360}, 70%, 50%)`;
+      return color;
     }
 
+    // Add settings management code at the top
+    const settings = {
+      nodesMaxAge: localStorage.getItem('nodesMaxAge') || '0', // Default to Show All
+      nodesDisconnectedAge: localStorage.getItem('nodesDisconnectedAge') || '10800', // Default to 3 hours (10800 seconds)
+      nodesOfflineAge: localStorage.getItem('nodesOfflineAge') || '10800', // Default to 3 hours (10800 seconds)
+      neighboursMaxDistance: localStorage.getItem('neighboursMaxDistance') || '5000',
+      channelFilter: localStorage.getItem('channelFilter') || 'all'
+    };
+
+    // Initialize settings UI
+    document.getElementById('nodesMaxAge').value = settings.nodesMaxAge;
+    document.getElementById('nodesDisconnectedAge').value = settings.nodesDisconnectedAge;
+    document.getElementById('nodesOfflineAge').value = settings.nodesOfflineAge;
+    document.getElementById('neighboursMaxDistance').value = settings.neighboursMaxDistance;
+    document.getElementById('channelFilter').value = settings.channelFilter;
+
+    // Add helper functions for time formatting
+    function formatTimestamp(timestamp) {
+      return new Date(timestamp * 1000).toLocaleString();
+    }
+
+    function timeAgo(timestamp) {
+      const seconds = Math.floor((Date.now() / 1000) - timestamp);
+      if (seconds < 60) return seconds + "s ago";
+      if (seconds < 3600) return Math.floor(seconds/60) + "m ago";
+      if (seconds < 86400) return Math.floor(seconds/3600) + "h ago";
+      return Math.floor(seconds/86400) + "d ago";
+    }
+
+    function calculateDistance(pos1, pos2) {
+      if (!pos1 || !pos2) return null;
+      return Math.sqrt(
+        Math.pow(pos1[0] - pos2[0], 2) +
+        Math.pow(pos1[1] - pos2[1], 2)
+      ) * 111.32;
+    }
+
+    // Initialize map
     const default_position = {
       latitude: 38.5816,
       longitude: -121.4944,
@@ -121,53 +285,39 @@
       zIndex: 2
     });
 
-    // Add helper functions for time formatting
-    function formatTimestamp(timestamp) {
-      return new Date(timestamp * 1000).toLocaleString();
-    }
-
-    function timeAgo(timestamp) {
-      const seconds = Math.floor((Date.now() / 1000) - timestamp);
-      if (seconds < 60) return seconds + "s ago";
-      if (seconds < 3600) return Math.floor(seconds/60) + "m ago";
-      if (seconds < 86400) return Math.floor(seconds/3600) + "h ago";
-      return Math.floor(seconds/86400) + "d ago";
-    }
-
-    function calculateDistance(pos1, pos2) {
-      if (!pos1 || !pos2) return null;
-      return Math.sqrt(
-        Math.pow(pos1[0] - pos2[0], 2) +
-        Math.pow(pos1[1] - pos2[1], 2)
-      ) * 111.32;
-    }
-
     var nodes = {};
     var neighborLayers = [];
     {% for id, node in nodes.items() %}
       {% if node.position is defined and node.position and node.position.longitude_i and node.position.latitude_i %}
-      nodes['{{ id }}'] = {
-        id: '{{ id }}',
-        short_name: '{{ node.short_name }}',
-        long_name: '{{ node.long_name }}',
-        last_seen: '{{ time_ago(node.ts_seen) }}',
-        position: [{{ node.position.longitude_i / 10000000 }}, {{ node.position.latitude_i / 10000000 }}],
-        online: {% if node.active %}true{% else %}false{% endif %},
-        zero_hop_data: {{ zero_hop_data.get(id, {'heard': [], 'heard_by': []}) | tojson | safe }}
-      };
-      {% if node.neighbors %}
-      nodes['{{ id }}'].neighbors = [
-        {% for neighbor in node.neighbors %}
-          {
-            id: '{{ utils.convert_node_id_from_int_to_hex(neighbor.neighbor_id) }}',
-            snr: '{{ neighbor.snr }}',
-            distance: '{{ neighbor.distance }}',
-          },
-        {% endfor %}
-      ];
-      {% else %}
-      nodes['{{ id }}'].neighbors = [];
-      {% endif %}
+        {% set lat = node.position.latitude_i / 10000000 %}
+        {% set lon = node.position.longitude_i / 10000000 %}
+        {% if -90 <= lat <= 90 and -180 <= lon <= 180 %}
+          nodes['{{ id }}'] = {
+            id: '{{ id }}',
+            short_name: '{{ node.short_name }}',
+            long_name: '{{ node.long_name | e }}',
+            last_seen: '{{ time_ago(node.ts_seen) }}',
+            ts_seen: {{ node.ts_seen }},
+            ts_uplink: {% if node.ts_uplink is defined and node.ts_uplink is not none %}{{ node.ts_uplink }}{% else %}null{% endif %},
+            position: [{{ lon }}, {{ lat }}],
+            online: {% if node.active %}true{% else %}false{% endif %},
+            channel: {% if node.channel is not none %}{{ node.channel }}{% else %}null{% endif %},
+            zero_hop_data: {{ zero_hop_data.get(id, {'heard': [], 'heard_by': []}) | tojson | safe }}
+          };
+          {% if node.neighbors %}
+            nodes['{{ id }}'].neighbors = [
+              {% for neighbor in node.neighbors %}
+                {
+                  id: '{{ utils.convert_node_id_from_int_to_hex(neighbor.neighbor_id) }}',
+                  snr: '{{ neighbor.snr }}',
+                  distance: '{{ neighbor.distance }}',
+                },
+              {% endfor %}
+            ];
+          {% else %}
+            nodes['{{ id }}'].neighbors = [];
+          {% endif %}
+        {% endif %}
       {% endif %}
     {% endfor %}
 
@@ -192,11 +342,96 @@
           geometry: new ol.geom.Point(ol.proj.fromLonLat(offsetCoords)),
           node: node,
         });
-        if (node.online) {
-          feature.setStyle(onlineStyle);
-        } else {
-          feature.setStyle(offlineStyle);
+
+        // Apply initial style based on filters
+        const now = Math.floor(Date.now() / 1000);
+        let visible = true;
+        let style = null;
+
+        // Apply channel filter
+        if (settings.channelFilter !== 'all') {
+          const channelId = parseInt(settings.channelFilter);
+          const nodeChannel = node.channel === null ? 8 : node.channel;
+          if (nodeChannel !== channelId) {
+            visible = false;
+          }
         }
+
+        // Apply node max age filter
+        if (visible && settings.nodesMaxAge !== '0') {
+          const maxAge = parseInt(settings.nodesMaxAge);
+          if (now - node.ts_seen > maxAge) {
+            visible = false;
+          }
+        }
+
+        if (visible) {
+          // Check MQTT uplink status first
+          if (node.ts_uplink !== null) {
+            const disconnectedAge = parseInt(settings.nodesDisconnectedAge);
+            const lastUplink = node.ts_uplink;
+            if (now - lastUplink <= disconnectedAge) {
+              // Node has active MQTT uplink - show as blue
+              style = new ol.style.Style({
+                image: new ol.style.Circle({
+                  radius: 6,
+                  fill: new ol.style.Fill({
+                    color: 'rgba(33, 150, 243, 1)' // Bright blue for active MQTT
+                  }),
+                  stroke: new ol.style.Stroke({
+                    color: 'white',
+                    width: 2
+                  })
+                })
+              });
+            } else {
+              // MQTT uplink is old, fall back to regular node status coloring
+              const offlineAge = parseInt(settings.nodesOfflineAge);
+              if (settings.nodesOfflineAge === 'never' || now - node.ts_seen <= offlineAge) {
+                // Node has been seen within the offline age threshold - show as active
+                style = onlineStyle;
+              } else {
+                // Node hasn't been seen within the offline age threshold - show as offline
+                style = offlineStyle;
+              }
+            }
+          } else {
+            // No MQTT uplink info - check offline age
+            const offlineAge = parseInt(settings.nodesOfflineAge);
+            if (settings.nodesOfflineAge === 'never' || now - node.ts_seen <= offlineAge) {
+              // Node has been seen within the offline age threshold - show as active
+              style = onlineStyle;
+            } else {
+              // Node hasn't been seen within the offline age threshold - show as offline
+              style = offlineStyle;
+            }
+          }
+
+          // Apply channel-specific styling if needed
+          if (settings.channelFilter !== 'all') {
+            const channelId = parseInt(settings.channelFilter);
+            // Only apply channel-specific styling if node matches the selected channel
+            if (node.channel === channelId) {
+              const hasActiveUplink = node.ts_uplink !== null && (now - node.ts_uplink) <= parseInt(settings.nodesDisconnectedAge);
+              style = new ol.style.Style({
+                image: new ol.style.Circle({
+                  radius: 6,
+                  fill: new ol.style.Fill({
+                    color: getChannelColor(channelId)
+                  }),
+                  stroke: new ol.style.Stroke({
+                    color: hasActiveUplink ? 'rgba(33, 150, 243, 1)' : 'white',
+                    width: hasActiveUplink ? 3 : 2
+                  })
+                })
+              });
+            } else {
+              visible = false; // Hide nodes that don't match the selected channel
+            }
+          }
+        }
+
+        feature.setStyle(visible ? style : null);
         features.push(feature);
         
         // Increment the count for this position
@@ -205,12 +440,198 @@
     });
 
     const layer = new ol.layer.Vector({
-      style: defaultStyle,
+      style: function(feature) {
+        // If the feature's style is null, return null (truly hide it)
+        // Otherwise return the feature's style
+        return feature.getStyle() || null;
+      },
       source: new ol.source.Vector({
         features: features
       })
     });
     map.addLayer(layer);
+
+    // Add event listeners for settings changes
+    document.getElementById('nodesMaxAge').addEventListener('change', function(e) {
+      settings.nodesMaxAge = e.target.value;
+      localStorage.setItem('nodesMaxAge', e.target.value);
+      applyFilters();
+    });
+
+    document.getElementById('nodesDisconnectedAge').addEventListener('change', function(e) {
+      settings.nodesDisconnectedAge = e.target.value;
+      localStorage.setItem('nodesDisconnectedAge', e.target.value);
+      applyFilters();
+    });
+
+    document.getElementById('nodesOfflineAge').addEventListener('change', function(e) {
+      settings.nodesOfflineAge = e.target.value;
+      localStorage.setItem('nodesOfflineAge', e.target.value);
+      applyFilters();
+    });
+
+    document.getElementById('neighboursMaxDistance').addEventListener('change', function(e) {
+      settings.neighboursMaxDistance = e.target.value;
+      localStorage.setItem('neighboursMaxDistance', e.target.value);
+      applyFilters();
+    });
+
+    document.getElementById('channelFilter').addEventListener('change', function(e) {
+      settings.channelFilter = e.target.value;
+      localStorage.setItem('channelFilter', e.target.value);
+      applyFilters();
+    });
+
+    // Define applyFilters function after layer is created
+    function applyFilters() {
+      const now = Math.floor(Date.now() / 1000);
+      const features = layer.getSource().getFeatures();
+      
+      features.forEach(function(feature) {
+        const node = feature.getProperties().node;
+        let visible = true;
+        let style = null;  // Start with no style
+
+        // Debug logging
+        console.log('Filtering node:', {
+          id: node.id,
+          channel: node.channel,
+          selectedChannel: settings.channelFilter,
+          ts_seen: node.ts_seen,
+          age: now - node.ts_seen,
+          maxAge: settings.nodesMaxAge,
+          initialVisible: visible
+        });
+
+        // Apply channel filter FIRST
+        if (settings.channelFilter !== 'all') {
+          const channelId = parseInt(settings.channelFilter);
+          const nodeChannel = node.channel === null ? 8 : node.channel; // Treat null as LongFast (8)
+          
+          if (nodeChannel !== channelId) {
+            visible = false;
+            console.log('Node filtered out by channel:', {
+              id: node.id,
+              nodeChannel: nodeChannel,
+              selectedChannel: channelId
+            });
+          }
+        }
+
+        // Apply node max age filter
+        if (visible && settings.nodesMaxAge !== '0') {
+          const maxAge = parseInt(settings.nodesMaxAge);
+          if (now - node.ts_seen > maxAge) {
+            visible = false;
+            console.log('Node filtered out by max age:', {
+              id: node.id,
+              age: now - node.ts_seen,
+              maxAge: maxAge
+            });
+          }
+        }
+
+        // Only proceed with style calculations if the node should be visible
+        if (visible) {
+          // Check MQTT uplink status first
+          if (node.ts_uplink !== null) {
+            const disconnectedAge = parseInt(settings.nodesDisconnectedAge);
+            const lastUplink = node.ts_uplink;
+            if (now - lastUplink <= disconnectedAge) {
+              // Node has active MQTT uplink - show as blue
+              style = new ol.style.Style({
+                image: new ol.style.Circle({
+                  radius: 6,
+                  fill: new ol.style.Fill({
+                    color: 'rgba(33, 150, 243, 1)' // Bright blue for active MQTT
+                  }),
+                  stroke: new ol.style.Stroke({
+                    color: 'white',
+                    width: 2
+                  })
+                })
+              });
+            } else {
+              // MQTT uplink is old, fall back to regular node status coloring
+              const offlineAge = parseInt(settings.nodesOfflineAge);
+              if (settings.nodesOfflineAge === 'never' || now - node.ts_seen <= offlineAge) {
+                // Node has been seen within the offline age threshold - show as active
+                style = onlineStyle;
+              } else {
+                // Node hasn't been seen within the offline age threshold - show as offline
+                style = offlineStyle;
+              }
+            }
+          } else {
+            // No MQTT uplink info - check offline age
+            const offlineAge = parseInt(settings.nodesOfflineAge);
+            if (settings.nodesOfflineAge === 'never' || now - node.ts_seen <= offlineAge) {
+              // Node has been seen within the offline age threshold - show as active
+              style = onlineStyle;
+            } else {
+              // Node hasn't been seen within the offline age threshold - show as offline
+              style = offlineStyle;
+            }
+          }
+
+          // Apply channel-specific styling if needed (for nodes that passed the channel filter)
+          if (settings.channelFilter !== 'all') {
+            const channelId = parseInt(settings.channelFilter);
+            // Only apply channel-specific styling if node matches the selected channel
+            if (node.channel === channelId) {
+              const hasActiveUplink = node.ts_uplink !== null && (now - node.ts_uplink) <= parseInt(settings.nodesDisconnectedAge);
+              style = new ol.style.Style({
+                image: new ol.style.Circle({
+                  radius: 6,
+                  fill: new ol.style.Fill({
+                    color: getChannelColor(channelId)
+                  }),
+                  stroke: new ol.style.Stroke({
+                    color: hasActiveUplink ? 'rgba(33, 150, 243, 1)' : 'white',
+                    width: hasActiveUplink ? 3 : 2
+                  })
+                })
+              });
+            } else {
+              visible = false; // Hide nodes that don't match the selected channel
+            }
+          }
+        }
+
+        // Only set a style if the node should be visible
+        feature.setStyle(visible ? style : null);
+      });
+
+      // Apply neighbor distance filter
+      neighborLayers.forEach(function(layer) {
+        const maxDistance = parseInt(settings.neighboursMaxDistance);
+        const features = layer.getSource().getFeatures();
+        
+        features.forEach(function(feature) {
+          const geometry = feature.getGeometry();
+          const coordinates = geometry.getCoordinates();
+          const distance = calculateDistance(
+            ol.proj.transform(coordinates[0], 'EPSG:3857', 'EPSG:4326'),
+            ol.proj.transform(coordinates[1], 'EPSG:3857', 'EPSG:4326')
+          ) * 1000; // Convert km to meters
+          
+          feature.setStyle(distance <= maxDistance ? feature.get('originalStyle') : null);
+        });
+      });
+    }
+
+    // Initial filter application
+    applyFilters();
+
+    async function reverseGeocode(lon, lat) {
+      return fetch('https://nominatim.openstreetmap.org/reverse?format=json&lon=' + lon + '&lat=' + lat)
+        .then(function(response) {
+          return response.json();
+        }).then(function(json) {
+          console.log(json);
+          return json;
+        });
+    }
 
     var container = document.getElementById('nodeDetail');
     var content = document.getElementById('popup-content');
@@ -250,48 +671,70 @@
 
     closer.onclick = function() {
       select.getFeatures().clear();
-      neighborLayers.map(function(layer) {
+      neighborLayers.forEach(function(layer) {
         map.removeLayer(layer);
       });
       neighborLayers = [];
       overlay.setPosition(undefined);
       closer.blur();
+      
+      // Hide and clear node info panel
+      $('#details').hide();
       nodeTitle.innerHTML = '';
       nodeSubtitle.innerHTML = '';
       nodeContent.innerHTML = '';
-      $('#details').hide();
+      
       return false;
     };
 
     map.on('singleclick', async function (event) {
-      neighborLayers.map(function(layer) {
+      // Clear existing neighbor layers
+      neighborLayers.forEach(function(layer) {
         map.removeLayer(layer);
       });
       neighborLayers = [];
 
-      if (map.hasFeatureAtPixel(event.pixel) === true) {
-        $('#details').show();
-        var coordinate = event.coordinate;
+      // Hide node info panel by default
+      $('#details').hide();
+      nodeTitle.innerHTML = '';
+      nodeSubtitle.innerHTML = '';
+      nodeContent.innerHTML = '';
+
+      if (map.hasFeatureAtPixel(event.pixel)) {
         var feature = map.forEachFeatureAtPixel(event.pixel, function(feature) {
           return feature;
         });
+        
         if (feature) {
           var properties = feature.getProperties();
           var node = properties.node;
           var address = await reverseGeocode(node.position[0], node.position[1]);
           var display_name = [address.address.town, address.address.city, address.address.county, address.address.state, address.address.country].filter(Boolean).join(', ');
 
+          // Show and populate the node info panel
+          $('#details').show();
+          
           // Build the basic info panel
           var panel = '<div style="position: relative; margin-bottom: 12px">'
             + '<span title="' + (node.online ? 'Online' : 'Offline') + '" style="position: absolute; top: 0; right: 0; font-size: 1.5em">' 
             + (node.online ? '🟢' : '⚫') + '</span>'
             + '<div class="fw-bold">' + node.long_name + '</div>'
-            + '<div class="text-muted small">' + node.id + '</div>'
+            + '<div class="text-muted small">' + node.id + ' <span style="font-weight: bold; color: #333;">(' + node.short_name + ')</span></div>'
             + '</div>'
             + '<div class="small">'
             + '<div class="mb-2"><i class="text-muted">Last seen:</i> ' + node.last_seen + '</div>'
+            + '<div class="mb-2"><i class="text-muted">MQTT Status:</i> ' 
+            + (node.ts_uplink ? 'Connected ' + timeAgo(node.ts_uplink) : 'Not Connected')
+            + '</div>'
             + '<div class="mb-2"><i class="text-muted">Position:</i> ' + node.position + '</div>'
             + '<div class="mb-2"><i class="text-muted">Location:</i> ' + display_name + '</div>'
+            + '<div class="mb-2"><i class="text-muted">Channel:</i> ' 
+            + (node.channel === null ? 'LongFast (8) [default]' : 
+               node.channel === 8 ? 'LongFast (8)' :
+               node.channel === 31 ? 'MediumFast (31)' :
+               node.channel === 112 ? 'ShortFast (112)' :
+               'Channel ' + node.channel)
+            + '</div>'
             + '</div>';
 
           // Add the heard section
@@ -473,18 +916,7 @@
 
           // Update the display
           nodeContent.innerHTML = panel;
-        } else {
-          nodeTitle.innerHTML = 'Unknown';
-          nodeSubtitle.innerHTML = 'UNK';
-          nodeContent.innerHTML = '';
-          $('#details').hide();
         }
-      } else {
-        nodeTitle.innerHTML = '';
-        nodeSubtitle.innerHTML = '';
-        nodeContent.innerHTML = '';
-        closer.blur();
-        $('#details').hide();
       }
     });
   </script>
@@ -501,7 +933,7 @@
     }
     #details {
       position: absolute;
-      top: 20px;
+      top: 140px;
       right: 20px;
       z-index: 1000;
     }

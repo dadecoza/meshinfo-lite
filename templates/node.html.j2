@@ -23,7 +23,7 @@
     <tr>
       {% if node.telemetry %}
       <td class="text-center">
-        {% if node.telemetry.air_util_tx %}
+        {% if node.telemetry.air_util_tx is not none %}
         <span class="text-center" title="Air Util TX">
           <img src="images/icons/up.svg" alt="Air Util TX" style="height: 14px">
           {{ node.telemetry.air_util_tx | round(1) }}%
@@ -31,7 +31,7 @@
         {% endif %}
       </td>
       <td class="text-center">
-        {% if node.telemetry.channel_utilization %}
+        {% if node.telemetry.channel_utilization is not none %}
         <span class="text-center" title="Channel Util">
           <img src="images/icons/down.svg" alt="Channel Util" style="height: 14px">
           {{ node.telemetry.channel_utilization | round(1) }}%
@@ -39,7 +39,7 @@
         {% endif %}
       </td>
       <td class="text-center">
-        {% if node.telemetry.battery_level %}
+        {% if node.telemetry.battery_level is not none %}
         <span class="text-center" title="Battery Level">
           <img src="images/icons/battery.svg" alt="Battery" style="height: 20px">
           {{ node.telemetry.battery_level | round(0) }}%
@@ -47,7 +47,7 @@
         {% endif %}
       </td>
       <td class="text-center">
-        {% if node.telemetry.voltage %}
+        {% if node.telemetry.voltage is not none %}
           <span class="text-center" title="Voltage">
             <img src="images/icons/voltage.svg" alt="Voltage" style="height: 14px">
             {% if node.telemetry.voltage is number %}
@@ -105,25 +105,14 @@
           <tr>
             <th scope="row" style="background: #F2F6F9; text-align: left;">Hardware</th>
             <td class="text-left">
-              {% if node.hw_model %}
-              {% if node.hw_model in meshtastic_support.HardwareModel._value2member_map_ %}
-              {% if meshtastic_support.HardwareModel(node.hw_model) and meshtastic_support.HardwareModel(node.hw_model)
-              in
-              meshtastic_support.HARDWARE_PHOTOS %}
+              {% if node.hw_model is not none and meshtastic_support.HardwareModel(node.hw_model) in meshtastic_support.HARDWARE_PHOTOS %}
               <img
                 src="images/hardware/{{ meshtastic_support.HARDWARE_PHOTOS[meshtastic_support.HardwareModel(node.hw_model)] }}"
-                alt="{{ meshtastic_support.HardwareModel(node.hw_model).name }}"
-                title="{{ meshtastic_support.HardwareModel(node.hw_model).name }}" class="rounded"
+                alt="{{ meshtastic_support.get_hardware_model_name(node.hw_model) }}"
+                title="{{ meshtastic_support.get_hardware_model_name(node.hw_model) }}" class="rounded"
                 style="max-height: 100px;">
-              {% else %}
-              {{ meshtastic_support.HardwareModel(node.hw_model).name }}
               {% endif %}
-              {% else %}
-              {{ node.hw_model }}
-              {% endif %}
-              {% else %}
-              Unknown
-              {% endif %}
+              {{ meshtastic_support.get_hardware_model_name(node.hw_model) }}
             </td>
           </tr>
           <tr>
@@ -254,6 +243,16 @@
             </td>
           </tr>
           <tr>
+            <th scope="row" style="background: #F2F6F9; text-align: left;">Channel</th>
+            <td class="text-left">
+              {% if node.channel %}
+              <span class="badge" style="background-color: {{ utils.get_channel_color(node.channel) }}; color: white; padding: 2px 6px; border-radius: 4px;" title="Channel {{ node.channel }} ({{ utils.get_channel_name(node.channel) }})">{{ utils.get_channel_name(node.channel, use_short_names=False) }}</span>
+              {% else %}
+              Unknown
+              {% endif %}
+            </td>
+          </tr>
+          <tr>
             <th scope="row" style="background: #F2F6F9; text-align: left;">Updated via</th>
             <td class="text-left">
               {% if node.updated_via %}
@@ -306,18 +305,18 @@
                 </td>
                 <td>
                   {% if nid in nodes %}
-                  {% set dist = utils.calculate_distance_between_nodes(nodes[nid], node) %}
-                  {% if dist %}
-                    {% if nodes[nid].position and nodes[nid].position.latitude_i and nodes[nid].position.longitude_i and node.position and node.position.latitude_i and node.position.longitude_i %}
-                      <a href="https://heywhatsthat.com/profiler.html?show_grade=0&show_rise=0&include_grade=1&decimal_places=0&elev_source=0&ll1={{ node.position.latitude_i / 1e7 }},{{ node.position.longitude_i / 1e7 }}&ll2={{ nodes[nid].position.latitude_i / 1e7 }},{{ nodes[nid].position.longitude_i / 1e7 }}" 
-                        target="_blank" 
-                        title="View elevation profile">
-                        {{ dist }} km 🏔️
-                      </a>
-                    {% else %}
-                      {{ dist }} km
+                    {% if nodes[nid].position and node.position %}
+                      {% if nodes[nid].position.latitude_i is not none and nodes[nid].position.longitude_i is not none and node.position.latitude_i is not none and node.position.longitude_i is not none %}
+                        {% set dist = utils.calculate_distance_between_nodes(nodes[nid], node) %}
+                        {% if dist %}
+                          <a href="https://heywhatsthat.com/profiler.html?show_grade=0&show_rise=0&include_grade=1&decimal_places=0&elev_source=0&ll1={{ node.position.latitude_i / 1e7 }},{{ node.position.longitude_i / 1e7 }}&ll2={{ nodes[nid].position.latitude_i / 1e7 }},{{ nodes[nid].position.longitude_i / 1e7 }}" 
+                            target="_blank" 
+                            title="View elevation profile">
+                            {{ dist|round(2) }} km 🏔️
+                          </a>
+                        {% endif %}
+                      {% endif %}
                     {% endif %}
-                  {% endif %}
                   {% endif %}
                 </td>
                 <td><span title="Neighbor data">N</span></td>
@@ -350,10 +349,10 @@
                         <a href="https://heywhatsthat.com/profiler.html?show_grade=0&show_rise=0&include_grade=1&decimal_places=0&elev_source=0&ll1={{ node.position.latitude_i / 1e7 }},{{ node.position.longitude_i / 1e7 }}&ll2={{ nodes[nid].position.latitude_i / 1e7 }},{{ nodes[nid].position.longitude_i / 1e7 }}" 
                           target="_blank" 
                           title="View elevation profile">
-                          {{ dist }} km 🏔️
+                          {{ dist|round(2) }} km 🏔️
                         </a>
                       {% else %}
-                        {{ dist }} km
+                        {{ dist|round(2) }} km
                       {% endif %}
                     {% endif %}
                     {% endif %}
@@ -399,19 +398,19 @@
                       SNR: {{ neighbor.snr }}
                     </td>
                     <td>
-                      {% if nid in nodes %}
-                      {% set dist = utils.calculate_distance_between_nodes(nodes[nid], node) %}
-                      {% if dist %}
-                        {% if nodes[nid].position and nodes[nid].position.latitude_i and nodes[nid].position.longitude_i and node.position and node.position.latitude_i and node.position.longitude_i %}
-                          <a href="https://heywhatsthat.com/profiler.html?show_grade=0&show_rise=0&include_grade=1&decimal_places=0&elev_source=0&ll1={{ node.position.latitude_i / 1e7 }},{{ node.position.longitude_i / 1e7 }}&ll2={{ nodes[nid].position.latitude_i / 1e7 }},{{ nodes[nid].position.longitude_i / 1e7 }}" 
-                            target="_blank" 
-                            title="View elevation profile">
-                            {{ dist }} km 🏔️
-                          </a>
-                        {% else %}
-                          {{ dist }} km
+                      {% if id in nodes %}
+                        {% if nodes[id].position and node.position %}
+                          {% if nodes[id].position.latitude_i is not none and nodes[id].position.longitude_i is not none and node.position.latitude_i is not none and node.position.longitude_i is not none %}
+                            {% set dist = utils.calculate_distance_between_nodes(nodes[id], node) %}
+                            {% if dist %}
+                              <a href="https://heywhatsthat.com/profiler.html?show_grade=0&show_rise=0&include_grade=1&decimal_places=0&elev_source=0&ll1={{ node.position.latitude_i / 1e7 }},{{ node.position.longitude_i / 1e7 }}&ll2={{ nodes[id].position.latitude_i / 1e7 }},{{ nodes[id].position.longitude_i / 1e7 }}" 
+                                target="_blank" 
+                                title="View elevation profile">
+                                {{ dist|round(2) }} km 🏔️
+                              </a>
+                            {% endif %}
+                          {% endif %}
                         {% endif %}
-                      {% endif %}
                       {% endif %}
                     </td>
                     <td><span title="Neighbor data">N</span></td>
@@ -446,10 +445,10 @@
                         <a href="https://heywhatsthat.com/profiler.html?show_grade=0&show_rise=0&include_grade=1&decimal_places=0&elev_source=0&ll1={{ node.position.latitude_i / 1e7 }},{{ node.position.longitude_i / 1e7 }}&ll2={{ nodes[nid].position.latitude_i / 1e7 }},{{ nodes[nid].position.longitude_i / 1e7 }}" 
                           target="_blank" 
                           title="View elevation profile">
-                          {{ dist }} km 🏔️
+                          {{ dist|round(2) }} km 🏔️
                         </a>
                       {% else %}
-                        {{ dist }} km
+                        {{ dist|round(2) }} km
                       {% endif %}
                     {% endif %}
                     {% endif %}
@@ -464,7 +463,7 @@
     </div>
   </div>
   {% if los_profiles %}
-  <div class="w-100 mt-2 text-center fw-bold p-2" style="background: #D7F9FF;">Line-of-sight with nodes in 20km radius</div>
+  <div class="w-100 mt-2 text-center fw-bold p-2" style="background: #D7F9FF;">Line-of-sight with nodes in {{ max_distance | round(2) }} km radius</div>
   <div class="row">
     {% for id, data in los_profiles.items()|sort(attribute='1.distance') %}
     <div class="col-sm-6 p-2">
@@ -517,7 +516,7 @@
   var node = {
     id: '{{ node.id }}',
     short_name: '{{ node.short_name }}',
-    long_name: '{{ node.long_name }}',
+    long_name: '{{ node.long_name | e }}',
     last_seen: '{{ node.last_seen }}',
     position: {
       latitude: 38.575764,

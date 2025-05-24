@@ -95,7 +95,7 @@
                                   padding: 3px 8px;
                                   display: inline-block;" 
                             title="SNR: {{ reception.rx_snr }}dB, RSSI: {{ reception.rx_rssi }}dBm{% if reception.hop_start is not none and reception.hop_limit is not none %}, Hops taken: {{ reception.hop_start - reception.hop_limit }} of {{ reception.hop_start }}){% endif %}">
-                        {{ nodes[node_id].short_name }}
+                        {{ nodes[node_id].short_name|replace('"', '&quot;') }}
                       </span>
                     </a>
                     {% endif %}

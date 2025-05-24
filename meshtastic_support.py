@@ -81,6 +81,94 @@ class HardwareModel(Enum):
     XIAO = 81
 
 
+class Role(Enum):
+    """
+    Meshtastic node roles
+    """
+    CLIENT = 0
+    CLIENT_MUTE = 1
+    ROUTER = 2
+    ROUTER_CLIENT = 3
+    REPEATER = 4
+    TRACKER = 5
+    SENSOR = 6
+    ATAK = 7
+    CLIENT_HIDDEN = 8
+    LOST_AND_FOUND = 9
+    ATAK_TRACKER = 10
+
+class ShortRole(Enum):
+    """
+    Meshtastic node short roles
+    """
+    C = 0
+    CM = 1
+    R = 2
+    RC = 3
+    RE = 4
+    T = 5
+    S = 6
+    A = 7
+    CH = 8
+    LF = 9
+    AT = 10
+
+
+class Channel(Enum):
+    """
+    Meshtastic channel mapping
+    Maps channel numbers to their descriptive names
+    """
+    LONG_FAST = 8
+    MEDIUM_FAST = 31
+    SHORT_FAST = 112
+    # Additional channels will be added as they are discovered
+
+class ShortChannel(Enum):
+    """
+    Meshtastic channel mapping
+    Maps channel numbers to their descriptive names
+    """
+    LF = 8
+    MF = 31
+    SF = 112
+    # Additional channels will be added as they are discovered
+
+def get_channel_name(channel_value, use_short_names=False):
+    """
+    Convert a channel number to a human-readable name.
+    
+    Args:
+        channel_value: The numeric channel value
+        use_short_names: If True, return short channel names (e.g., "LF" instead of "LongFast")
+        
+    Returns:
+        A human-readable channel name or "Unknown (value)" if not recognized
+    """
+    if channel_value is None:
+        return "Default"
+    
+    try:
+        # Try to find the channel in our enum
+        if use_short_names:
+            for channel in ShortChannel:
+                if channel.value == channel_value:
+                    return channel.name
+        else:
+            for channel in Channel:
+                if channel.value == channel_value:
+                    # Convert the enum name to a more readable format
+                    # Keep the underscores but capitalize each word
+                    words = channel.name.split('_')
+                    formatted_words = [word.capitalize() for word in words]
+                    return ''.join(formatted_words)
+        
+        # If not found in our enum, return unknown with the value
+        return f"Unknown ({channel_value})"
+    except Exception:
+        return f"Unknown ({channel_value})"
+
+
 HARDWARE_PHOTOS = {
     HardwareModel.HELTEC_HT62: "HELTEC_HT62.png",
     HardwareModel.HELTEC_V2_0: "HELTEC_V2_0.png",
@@ -115,3 +203,41 @@ HARDWARE_PHOTOS = {
     HardwareModel.RPI_PICO2: "RPI_PICO.png",
     HardwareModel.NRF52840DK: "NRF52840DK.png"
 }
+
+def validate_hardware_model(hw_model_value):
+    """
+    Strictly validate a hardware model value against the HardwareModel enum.
+    
+    Args:
+        hw_model_value: The numeric hardware model value
+        
+    Returns:
+        The matching HardwareModel enum value
+        
+    Raises:
+        ValueError: If the hardware model value is not in the enum
+    """
+    if hw_model_value is None:
+        raise ValueError("Hardware model value cannot be None")
+    
+    for model in HardwareModel:
+        if model.value == hw_model_value:
+            return model
+    
+    raise ValueError(f"Invalid hardware model value: {hw_model_value}")
+
+def get_hardware_model_name(hw_model_value):
+    """
+    Convert a hardware model value to a human-readable name.
+    
+    Args:
+        hw_model_value: The numeric hardware model value
+        
+    Returns:
+        A human-readable hardware model name or "Unknown (value)" if not recognized
+    """
+    try:
+        model = validate_hardware_model(hw_model_value)
+        return model.name.replace('_', ' ')
+    except ValueError:
+        return f"Unknown ({hw_model_value})"
