@@ -1,0 +1,1071 @@
+{% extends "layout.html.j2" %}
+
+{% block title %}
+{% if config.has_section('mesh') and config.has_option('mesh', 'short_name') %}
+{{ config.get('mesh', 'short_name') }} Mesh Metrics
+{% else %}
+Mesh Metrics
+{% endif %}
+{% endblock %}
+
+{% block og_title %}Network Metrics | {{ config['mesh']['name'] }}{% endblock %}
+{% block og_description %}View network statistics, trends, and performance metrics for the {{ config['mesh']['short_name'] }} Meshtastic mesh network.{% endblock %}
+{% block twitter_title %}Network Metrics | {{ config['mesh']['name'] }}{% endblock %}
+{% block twitter_description %}View network statistics, trends, and performance metrics for the {{ config['mesh']['short_name'] }} Meshtastic mesh network.{% endblock %}
+
+{% block head %}
+  {{ super() }}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+    .page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin: 20px 40px;
+    }
+    .page-header h1 {
+        margin: 0;
+    }
+    .page-header .controls {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+    }
+    .page-header select {
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background-color: white;
+        font-size: 14px;
+        min-width: 150px;
+    }
+    .page-header select:hover {
+        border-color: #2196F3;
+    }
+    .page-header select:focus {
+        outline: none;
+        border-color: #2196F3;
+        box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.1);
+    }
+    .chart-container {
+        background-color: white;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        height: 400px;
+        position: relative;
+        display: flex;
+        flex-direction: column;
+    }
+    .chart-container h2 {
+        margin-top: 0;
+        margin-bottom: 10px;
+    }
+    .chart-container canvas {
+        flex: 1;
+        width: 100% !important;
+        height: calc(100% - 30px) !important;
+    }
+    .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(666px, 100%), 1fr));
+        gap: 20px;
+        margin: 20px 20px;
+        width: calc(100% - 40px);
+    }
+    @media (min-width: 1400px) {
+        .metrics-grid {
+            max-width: 1800px;
+            margin-left: auto;
+            margin-right: auto;
+            width: 100%;
+        }
+    }
+    .refresh-button {
+        background-color: #4CAF50;
+        color: white;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        transition: background-color 0.2s;
+    }
+    .refresh-button:hover {
+        background-color: #45a049;
+    }
+    .chattiest-nodes {
+        background-color: white;
+        border-radius: 8px;
+        padding: 20px;
+        margin: 20px 40px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .chattiest-nodes h2 {
+        margin-top: 0;
+    }
+    .chattiest-nodes table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+    }
+    .chattiest-nodes th, .chattiest-nodes td {
+        padding: 10px;
+        text-align: left;
+        border-bottom: 1px solid #ddd;
+    }
+    .chattiest-nodes th {
+        background-color: #f5f5f5;
+        font-weight: bold;
+    }
+    .chattiest-nodes tr:hover {
+        background-color: #f9f9f9;
+    }
+    .chattiest-nodes .node-id {
+        font-family: monospace;
+    }
+    .chattiest-nodes .node-link {
+        color: #2196F3;
+        text-decoration: none;
+        font-family: inherit;
+    }
+    .chattiest-nodes .node-link:hover {
+        text-decoration: underline;
+    }
+    .chattiest-nodes .node-details {
+        font-size: 0.9em;
+        color: #666;
+        font-family: monospace;
+    }
+    .filter-controls {
+        margin-bottom: 20px;
+        display: flex;
+        gap: 10px;
+    }
+    .filter-controls select {
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background-color: white;
+        font-size: 14px;
+        min-width: 150px;
+    }
+    .filter-controls select:hover {
+        border-color: #2196F3;
+    }
+    .filter-controls select:focus {
+        outline: none;
+        border-color: #2196F3;
+        box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.1);
+    }
+    .metrics-controls {
+        margin: 0 40px 20px 40px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .metrics-controls h2 {
+        margin: 0;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>
+    {% if config.has_section('mesh') and config.has_option('mesh', 'short_name') %}
+    {{ config.get('mesh', 'short_name') }} Mesh Metrics
+    {% else %}
+    Mesh Metrics
+    {% endif %}
+    </h1>
+    <div class="controls">
+        <select id="timeRangeFilter" onchange="updateMetrics()">
+            <option value="day" selected>Last 24 Hours</option>
+            <option value="week">Last Week</option>
+            <option value="month">Last Month</option>
+            <!-- <option value="year">Last Year</option> -->
+            <!-- <option value="all">All Time</option> -->
+        </select>
+        <select id="channelFilter" onchange="updateMetrics()">
+            <option value="all" selected>All Channels</option>
+            {% for channel in Channel %}
+                <option value="{{ channel.value }}">{{ utils.get_channel_name(channel.value) }} ({{ channel.value }})</option>
+            {% endfor %}
+        </select>
+        <button class="refresh-button" onclick="refreshData()">Refresh Data</button>
+    </div>
+</div>
+
+<div class="metrics-grid">
+    <div class="chart-container">
+        <h2>Nodes Heard</h2>
+        <canvas id="nodesOnlineChart"></canvas>
+    </div>
+    
+    <div class="chart-container">
+        <h2>Message Traffic</h2>
+        <canvas id="messageTrafficChart"></canvas>
+    </div>
+    
+    <div class="chart-container">
+        <h2>Channel Utilization</h2>
+        <canvas id="channelUtilChart"></canvas>
+    </div>
+    
+    <div class="chart-container">
+        <h2>Battery Levels</h2>
+        <canvas id="batteryLevelChart"></canvas>
+    </div>
+    
+    <div class="chart-container">
+        <h2>Temperature Readings</h2>
+        <canvas id="temperatureChart"></canvas>
+    </div>
+    
+    <div class="chart-container">
+        <h2>Signal Strength (SNR)</h2>
+        <canvas id="snrChart"></canvas>
+    </div>
+    
+    <div class="chart-container" style="height: 600px;">
+        <h2>Most Common Hardware Models</h2>
+        <canvas id="mostCommonHardwareChart"></canvas>
+    </div>
+    
+    <div class="chart-container" style="height: 600px;">
+        <h2>Least Common Hardware Models</h2>
+        <canvas id="leastCommonHardwareChart"></canvas>
+    </div>
+</div>
+
+<div class="chattiest-nodes">
+    <h2>Chattiest Nodes</h2>
+    <div class="filter-controls">
+        <select id="timeFrameFilter" onchange="updateChattiestNodes()">
+            <option value="day" selected>Last 24 Hours</option>
+            <option value="week">Last Week</option>
+            <option value="month">Last Month</option>
+            <option value="year">Last Year</option>
+            <option value="all">All Time</option>
+        </select>
+        <select id="messageTypeFilter" onchange="updateChattiestNodes()">
+            <option value="all" selected>All Messages</option>
+            <option value="text">Text Messages</option>
+            <option value="position">Position Updates</option>
+            <option value="telemetry">Telemetry</option>
+        </select>
+        <select id="nodeChannelFilter" onchange="updateChattiestNodes()">
+            <option value="all" selected>All Channels</option>
+            {% for channel in Channel %}
+                <option value="{{ channel.value }}">{{ utils.get_channel_name(channel.value) }} ({{ channel.value }})</option>
+            {% endfor %}
+        </select>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>Node</th>
+                <th>Role</th>
+                <th>Messages</th>
+                <th>Active Days</th>
+                <th>First Message</th>
+                <th>Last Message</th>
+                <th>Channels</th>
+            </tr>
+        </thead>
+        <tbody id="chattiestNodesBody">
+            <tr>
+                <td colspan="8" style="text-align: center;">Loading...</td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+<script>
+    // Chart objects
+    let nodesOnlineChart;
+    let messageTrafficChart;
+    let channelUtilChart;
+    let batteryLevelChart;
+    let temperatureChart;
+    let snrChart;
+    let mostCommonHardwareChart;
+    let leastCommonHardwareChart;
+    
+    // Chart colors
+    const chartColors = {
+        nodesOnline: '#4CAF50',
+        messageTraffic: '#2196F3',
+        channelUtil: '#FF9800',
+        batteryLevel: '#9C27B0',
+        temperature: '#F44336',
+        snr: '#009688',
+        mostCommonHardware: '#4CAF50',
+        leastCommonHardware: '#FF5722'
+    };
+    
+    // Initialize charts when the page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        initializeCharts();
+        refreshData();
+        updateChattiestNodes();
+        updateHardwareModels();
+        
+        // Set up auto-refresh every 5 minutes
+        setInterval(refreshData, 5 * 60 * 1000);
+    });
+    
+    // Initialize all charts with empty data
+    function initializeCharts() {
+        const commonOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'top',
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false
+                }
+            },
+            scales: {
+                x: {
+                    grid: {
+                        display: true,
+                        drawOnChartArea: true,
+                        drawTicks: true,
+                        drawBorder: true
+                    },
+                    ticks: {
+                        maxRotation: 0,
+                        minRotation: 0,
+                        autoSkip: false,
+                        padding: 15,
+                        font: {
+                            size: 11
+                        }
+                    },
+                    afterFit: function(scaleInstance) {
+                        scaleInstance.height += 20;
+                    }
+                },
+                y: {
+                    beginAtZero: true,
+                    display: true,
+                    title: {
+                        display: true,
+                        text: 'Value'
+                    }
+                }
+            }
+        };
+
+        // Nodes Online Chart
+        nodesOnlineChart = new Chart(document.getElementById('nodesOnlineChart'), {
+            type: 'bar',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Nodes Heard',
+                    data: [],
+                    backgroundColor: chartColors.nodesOnline + '90',
+                    borderColor: chartColors.nodesOnline,
+                    borderWidth: 1,
+                    borderRadius: 2,
+                    barPercentage: 0.8,
+                    categoryPercentage: 0.9
+                }]
+            },
+            options: {
+                ...commonOptions,
+                scales: {
+                    ...commonOptions.scales,
+                    y: {
+                        ...commonOptions.scales.y,
+                        title: {
+                            display: true,
+                            text: 'Number of Nodes Heard'
+                        }
+                    }
+                }
+            }
+        });
+        
+        // Message Traffic Chart
+        messageTrafficChart = new Chart(document.getElementById('messageTrafficChart'), {
+            type: 'bar',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Messages per Time Period',
+                    data: [],
+                    backgroundColor: chartColors.messageTraffic + '90',
+                    borderColor: chartColors.messageTraffic,
+                    borderWidth: 1,
+                    borderRadius: 2,
+                    barPercentage: 0.8,
+                    categoryPercentage: 0.9
+                }]
+            },
+            options: {
+                ...commonOptions,
+                scales: {
+                    ...commonOptions.scales,
+                    y: {
+                        ...commonOptions.scales.y,
+                        title: {
+                            display: true,
+                            text: 'Messages'
+                        }
+                    }
+                }
+            }
+        });
+        
+        // Channel Utilization Chart
+        channelUtilChart = new Chart(document.getElementById('channelUtilChart'), {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Average Channel Utilization (%)',
+                    data: [],
+                    borderColor: chartColors.channelUtil,
+                    backgroundColor: chartColors.channelUtil + '20',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                ...commonOptions,
+                scales: {
+                    ...commonOptions.scales,
+                    y: {
+                        ...commonOptions.scales.y,
+                        title: {
+                            display: true,
+                            text: 'Utilization (%)'
+                        },
+                        max: 100
+                    }
+                }
+            }
+        });
+        
+        // Battery Level Chart
+        batteryLevelChart = new Chart(document.getElementById('batteryLevelChart'), {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Average Battery Level (%)',
+                    data: [],
+                    borderColor: chartColors.batteryLevel,
+                    backgroundColor: chartColors.batteryLevel + '20',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                ...commonOptions,
+                scales: {
+                    ...commonOptions.scales,
+                    y: {
+                        ...commonOptions.scales.y,
+                        title: {
+                            display: true,
+                            text: 'Battery Level (%)'
+                        },
+                        max: 100
+                    }
+                }
+            }
+        });
+        
+        // Temperature Chart
+        temperatureChart = new Chart(document.getElementById('temperatureChart'), {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Average Temperature (°C)',
+                    data: [],
+                    borderColor: chartColors.temperature,
+                    backgroundColor: chartColors.temperature + '20',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                ...commonOptions,
+                scales: {
+                    ...commonOptions.scales,
+                    y: {
+                        ...commonOptions.scales.y,
+                        title: {
+                            display: true,
+                            text: 'Temperature (°C)'
+                        },
+                        beginAtZero: false
+                    }
+                }
+            }
+        });
+        
+        // Signal Strength (SNR) Chart
+        snrChart = new Chart(document.getElementById('snrChart'), {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Average Signal Strength (SNR)',
+                    data: [],
+                    borderColor: chartColors.snr,
+                    backgroundColor: chartColors.snr + '20',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                ...commonOptions,
+                scales: {
+                    ...commonOptions.scales,
+                    y: {
+                        ...commonOptions.scales.y,
+                        title: {
+                            display: true,
+                            text: 'SNR (dB)'
+                        },
+                        beginAtZero: false
+                    }
+                }
+            }
+        });
+        
+        // Most Common Hardware Models Chart
+        mostCommonHardwareChart = new Chart(document.getElementById('mostCommonHardwareChart'), {
+            type: 'bar',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Number of Nodes',
+                    data: [],
+                    backgroundColor: chartColors.mostCommonHardware + '90',
+                    borderColor: chartColors.mostCommonHardware,
+                    borderWidth: 1,
+                    borderRadius: 2,
+                    barPercentage: 0.8,
+                    categoryPercentage: 0.9
+                }]
+            },
+            options: {
+                ...commonOptions,
+                indexAxis: 'y', // Horizontal bar chart
+                onClick: function(event, elements) {
+                    if (elements.length > 0) {
+                        const index = elements[0].index;
+                        const modelName = this.data.labels[index];
+                        const modelId = this.data.datasets[0].modelIds[index];
+                        window.open(`/allnodes.html?hw_model=${encodeURIComponent(modelId)}&hw_name=${encodeURIComponent(modelName)}`, '_blank');
+                    }
+                },
+                onHover: function(event, elements) {
+                    event.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+                },
+                scales: {
+                    x: {
+                        ...commonOptions.scales.x,
+                        title: {
+                            display: true,
+                            text: 'Number of Nodes'
+                        }
+                    },
+                    y: {
+                        ...commonOptions.scales.y,
+                        title: {
+                            display: false
+                        },
+                        ticks: {
+                            ...commonOptions.scales.y.ticks,
+                            callback: function(value, index) {
+                                const label = this.getLabelForValue(value);
+                                // Truncate long labels but ensure they're readable
+                                if (label.length > 25) {
+                                    return label.substring(0, 22) + '...';
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                },
+                plugins: {
+                    ...commonOptions.plugins,
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                // Show full name in tooltip
+                                return context[0].label;
+                            },
+                            afterBody: function(context) {
+                                return 'Click to view nodes with this hardware model';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        
+        // Least Common Hardware Models Chart
+        leastCommonHardwareChart = new Chart(document.getElementById('leastCommonHardwareChart'), {
+            type: 'bar',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Number of Nodes',
+                    data: [],
+                    backgroundColor: chartColors.leastCommonHardware + '90',
+                    borderColor: chartColors.leastCommonHardware,
+                    borderWidth: 1,
+                    borderRadius: 2,
+                    barPercentage: 0.8,
+                    categoryPercentage: 0.9
+                }]
+            },
+            options: {
+                ...commonOptions,
+                indexAxis: 'y', // Horizontal bar chart
+                onClick: function(event, elements) {
+                    if (elements.length > 0) {
+                        const index = elements[0].index;
+                        const modelName = this.data.labels[index];
+                        const modelId = this.data.datasets[0].modelIds[index];
+                        window.open(`/allnodes.html?hw_model=${encodeURIComponent(modelId)}&hw_name=${encodeURIComponent(modelName)}`, '_blank');
+                    }
+                },
+                onHover: function(event, elements) {
+                    event.native.target.style.cursor = elements.length > 0 ? 'pointer' : 'default';
+                },
+                scales: {
+                    x: {
+                        ...commonOptions.scales.x,
+                        title: {
+                            display: true,
+                            text: 'Number of Nodes'
+                        },
+                        ticks: {
+                            ...commonOptions.scales.x.ticks,
+                            stepSize: 1,
+                            callback: function(value) {
+                                // Only show whole numbers
+                                return Math.floor(value) === value ? value : '';
+                            }
+                        }
+                    },
+                    y: {
+                        ...commonOptions.scales.y,
+                        title: {
+                            display: false
+                        },
+                        ticks: {
+                            ...commonOptions.scales.y.ticks,
+                            callback: function(value, index) {
+                                const label = this.getLabelForValue(value);
+                                // Truncate long labels but ensure they're readable
+                                if (label.length > 25) {
+                                    return label.substring(0, 22) + '...';
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                },
+                plugins: {
+                    ...commonOptions.plugins,
+                    legend: {
+                        display: false
+                    },
+                    tooltip: {
+                        callbacks: {
+                            title: function(context) {
+                                // Show full name in tooltip
+                                return context[0].label;
+                            },
+                            afterBody: function(context) {
+                                return 'Click to view nodes with this hardware model';
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+    
+    // Refresh all data
+    function refreshData() {
+        updateMetrics();
+        updateHardwareModels();
+    }
+    
+    // Update metrics based on selected time range
+    function updateMetrics() {
+        const timeRange = document.getElementById('timeRangeFilter').value;
+        const channel = document.getElementById('channelFilter').value;
+        
+        // Show loading state
+        document.querySelectorAll('.chart-container').forEach(container => {
+            container.style.opacity = '0.7';
+        });
+        
+        // Fetch data from API
+        fetch(`/api/metrics?time_range=${timeRange}&channel=${channel}`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.error) {
+                    console.error('Error fetching metrics:', data.error);
+                    return;
+                }
+                
+                // Update charts with new data
+                updateChart(nodesOnlineChart, data.nodes_online, 'Nodes Online', 'Number of Nodes');
+                updateChart(messageTrafficChart, data.message_traffic, 'Messages', 'Messages');
+                updateChart(channelUtilChart, data.channel_util, 'Channel Utilization (%)', 'Utilization (%)');
+                updateChart(batteryLevelChart, data.battery_levels, 'Average Battery Level (%)', 'Battery Level (%)');
+                updateChart(temperatureChart, data.temperature, 'Average Temperature (°C)', 'Temperature (°C)');
+                updateChart(snrChart, data.snr, 'Average Signal Strength (SNR)', 'SNR (dB)');
+                
+                // Reset loading state
+                document.querySelectorAll('.chart-container').forEach(container => {
+                    container.style.opacity = '1';
+                });
+            })
+            .catch(error => {
+                console.error('Error fetching metrics data:', error);
+                // Reset loading state
+                document.querySelectorAll('.chart-container').forEach(container => {
+                    container.style.opacity = '1';
+                });
+            });
+    }
+    
+    // Update hardware models data
+    function updateHardwareModels() {
+        // Show loading state for hardware charts
+        document.querySelectorAll('#mostCommonHardwareChart, #leastCommonHardwareChart').forEach(canvas => {
+            canvas.parentElement.style.opacity = '0.7';
+        });
+        
+        // Fetch data from API
+        fetch('/api/hardware-models')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.error) {
+                    console.error('Error fetching hardware models:', data.error);
+                    return;
+                }
+                
+                // Update most common hardware chart
+                updateHardwareChart(mostCommonHardwareChart, data.most_common, 'Most Common Hardware Models');
+                
+                // Update least common hardware chart
+                updateHardwareChart(leastCommonHardwareChart, data.least_common, 'Least Common Hardware Models');
+                
+                // Reset loading state
+                document.querySelectorAll('#mostCommonHardwareChart, #leastCommonHardwareChart').forEach(canvas => {
+                    canvas.parentElement.style.opacity = '1';
+                });
+            })
+            .catch(error => {
+                console.error('Error fetching hardware models data:', error);
+                // Reset loading state
+                document.querySelectorAll('#mostCommonHardwareChart, #leastCommonHardwareChart').forEach(canvas => {
+                    canvas.parentElement.style.opacity = '1';
+                });
+            });
+    }
+    
+    // Update a hardware chart with new data
+    function updateHardwareChart(chart, data, title) {
+        if (!data || !Array.isArray(data)) {
+            console.error('Invalid data format for hardware chart update');
+            return;
+        }
+
+        // Prepare labels and data
+        const labels = data.map(item => item.model_name);
+        const values = data.map(item => item.node_count);
+        const modelIds = data.map(item => item.model_id);
+        
+        // Update chart data
+        chart.data.labels = labels;
+        chart.data.datasets[0].data = values;
+        chart.data.datasets[0].label = 'Number of Nodes';
+        chart.data.datasets[0].modelIds = modelIds; // Store model IDs for click handlers
+        
+        // Update chart
+        chart.update('none');
+    }
+    
+    // Update a chart with new data
+    function updateChart(chart, data, label, yAxisLabel) {
+        if (!data || !data.labels || !data.data) {
+            console.error('Invalid data format for chart update');
+            return;
+        }
+
+        // Special handling for message traffic to fill gaps with zeros
+        if (label === 'Messages per Time Period') {
+            // Create a map of existing data points
+            const dataMap = new Map();
+            data.labels.forEach((label, i) => {
+                dataMap.set(label, data.data[i]);
+            });
+            
+            // Find the time interval (assuming consistent intervals in the input)
+            let interval = 30; // Default to 30 minutes
+            if (data.labels.length >= 2) {
+                const date1 = new Date(data.labels[0] + 'Z');
+                const date2 = new Date(data.labels[1] + 'Z');
+                interval = (date2 - date1) / (60 * 1000); // Convert to minutes
+            }
+            
+            // Create a complete timeline
+            const startTime = new Date(data.labels[0] + 'Z');
+            const endTime = new Date(data.labels[data.labels.length - 1] + 'Z');
+            const timeline = [];
+            const values = [];
+            
+            for (let time = startTime; time <= endTime; time = new Date(time.getTime() + interval * 60 * 1000)) {
+                const timeStr = time.toISOString().slice(0, 16).replace('T', ' ');
+                timeline.push(timeStr);
+                values.push(dataMap.get(timeStr) || 0);
+            }
+            
+            // Update the data with the complete timeline
+            data = {
+                labels: timeline,
+                data: values
+            };
+        }
+        
+        // Convert UTC timestamps to local time with date landmarks
+        let previousLocalDate = null;
+        const localLabels = data.labels.map((label, index) => {
+            // Parse the timestamp string directly (format: "YYYY-MM-DD HH:mm")
+            const [datePart, timePart] = label.split(' ');
+            
+            // Create Date object in UTC
+            const utcDate = new Date(label + 'Z');
+            
+            // Convert to local date string for comparison
+            const localDate = utcDate.toLocaleDateString('en-US');
+            
+            // Format time consistently in local timezone
+            const timeStr = utcDate.toLocaleTimeString('en-US', { 
+                hour: '2-digit', 
+                minute: '2-digit',
+                hour12: false 
+            });
+            
+            // Show date if it's different from previous in local time
+            const isNewDate = localDate !== previousLocalDate;
+            previousLocalDate = localDate;
+            
+            if (isNewDate) {
+                return {
+                    display: utcDate.toLocaleDateString('en-US', { 
+                        month: 'short', 
+                        day: 'numeric'
+                    }) + '\n' + timeStr,
+                    isDateLabel: true,
+                    isFirstOfDate: true,
+                    date: utcDate,
+                    timeStr: timeStr
+                };
+            }
+            
+            // Otherwise just show the time
+            return {
+                display: timeStr,
+                isDateLabel: false,
+                isFirstOfDate: false,
+                date: utcDate,
+                timeStr: timeStr
+            };
+        });
+        
+        // Update chart data
+        chart.data.labels = localLabels.map(l => l.display);
+        chart.data.datasets[0].data = data.data;
+        chart.data.datasets[0].label = label;
+        
+        // Get the current time range from the filter
+        const timeRange = document.getElementById('timeRangeFilter') ? document.getElementById('timeRangeFilter').value : 'day';
+        
+        // Update y-axis label
+        chart.options.scales.y.title.text = yAxisLabel;
+        
+        // Configure x-axis for better label display
+        chart.options.scales.x = {
+            ...chart.options.scales.x,
+            ticks: {
+                ...chart.options.scales.x.ticks,
+                callback: function(val, index) {
+                    const label = localLabels[index];
+                    if (!label) return '';
+                    const labelCount = localLabels.length;
+                    // For 'month' view: only show the date (no time)
+                    if (timeRange === 'month') {
+                        if (label.isFirstOfDate) {
+                            const day = label.date.getDate();
+                            // Show label for the 1st, 4th, 7th, ... day (every 3rd day, including the 1st)
+                            if (day === 1 || day % 3 === 0) {
+                                return label.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                            }
+                        }
+                        return '';
+                    }
+                    // For 'week' view: show date at start of day, and only show '12:00' (noon) for other times
+                    if (timeRange === 'week') {
+                        if (label.isFirstOfDate) {
+                            return label.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                        }
+                        // Only show '12:00' (noon)
+                        if (label.timeStr === '12:00') {
+                            return '12:00';
+                        }
+                        return '';
+                    }
+                    // For 'day' view: keep current behavior (show date at start of day, otherwise show time at regular intervals)
+                    if (label.isFirstOfDate) {
+                        return label.display.split('\n');
+                    }
+                    // Show other time labels at regular intervals
+                    const skipFactor = Math.ceil(labelCount / 15); // Target showing ~15 labels
+                    const prevLabel = index > 0 ? localLabels[index - 1] : null;
+                    const nextLabel = index < localLabels.length - 1 ? localLabels[index + 1] : null;
+                    if (prevLabel?.isFirstOfDate || nextLabel?.isFirstOfDate) {
+                        return '';
+                    }
+                    if (index === 0 || index % skipFactor === 0) {
+                        return label.display;
+                    }
+                    return '';
+                }
+            }
+        };
+        
+        // Update chart
+        chart.update('none');
+    }
+    
+    // Update chattiest nodes table
+    function updateChattiestNodes() {
+        const timeFrame = document.getElementById('timeFrameFilter').value;
+        const messageType = document.getElementById('messageTypeFilter').value;
+        const channel = document.getElementById('nodeChannelFilter').value;
+        
+        // Add loading indicator to the table without clearing it
+        const tableBody = document.getElementById('chattiestNodesBody');
+        const loadingRow = document.createElement('tr');
+        loadingRow.id = 'loadingIndicator';
+        loadingRow.style.backgroundColor = 'rgba(255, 255, 255, 0.8)';
+        loadingRow.style.position = 'absolute';
+        loadingRow.style.width = '100%';
+        loadingRow.innerHTML = '<td colspan="8" style="text-align: center; padding: 20px;">Loading...</td>';
+        
+        // Make the table container relative for absolute positioning of loading indicator
+        tableBody.parentElement.style.position = 'relative';
+        tableBody.parentElement.appendChild(loadingRow);
+        
+        // Fetch data from API
+        fetch(`/api/chattiest-nodes?time_frame=${timeFrame}&message_type=${messageType}&channel=${channel}`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.error) {
+                    console.error('Error fetching chattiest nodes:', data.error);
+                    tableBody.innerHTML = '<tr><td colspan="8" style="text-align: center;">Error: ' + data.error + '</td></tr>';
+                    return;
+                }
+                
+                // Clear the table body
+                tableBody.innerHTML = '';
+                
+                if (!data.chattiest_nodes || data.chattiest_nodes.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="8" style="text-align: center;">No data available</td></tr>';
+                } else {
+                    data.chattiest_nodes.forEach((node, index) => {
+                        const row = document.createElement('tr');
+                        
+                        // Format timestamps
+                        const firstMessage = new Date(node.first_message).toLocaleString();
+                        const lastMessage = new Date(node.last_message).toLocaleString();
+                        
+                        // Format channels using Jinja2 for color consistency
+                        let channelsText = '-';
+                        if (node.channels && node.channels.length > 0) {
+                            channelsText = node.channels.map(function(ch) {
+                                // The backend should provide ch.color and ch.name for each channel
+                                return `<span style="background-color: ${ch.color}; color: white; padding: 2px 6px; border-radius: 4px; margin-right: 4px;" title="Channel ${ch.id} (${ch.name})">${ch.name}</span>`;
+                            }).join('');
+                        }
+                        row.innerHTML = `
+                            <td>${index + 1}</td>
+                            <td class="node-id">
+                                ${node.long_name ? 
+                                    `<a href="/node_${node.node_id_hex}.html" class="node-link">${node.long_name}</a><br>` : 
+                                    `<a href="/node_${node.node_id_hex}.html" class="node-link">${node.node_id_hex}</a><br>`
+                                }
+                                <span class="node-details">${node.short_name || ''} (!${node.node_id_hex})</span>
+                            </td>
+                            <td>${node.role}</td>
+                            <td>${node.message_count}</td>
+                            <td>${node.active_days}</td>
+                            <td>${firstMessage}</td>
+                            <td>${lastMessage}</td>
+                            <td>${channelsText}</td>
+                        `;
+                        
+                        tableBody.appendChild(row);
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching chattiest nodes:', error);
+                tableBody.innerHTML = '<tr><td colspan="8" style="text-align: center;">Error loading data</td></tr>';
+            })
+            .finally(() => {
+                // Remove loading indicator
+                const loadingIndicator = document.getElementById('loadingIndicator');
+                if (loadingIndicator) {
+                    loadingIndicator.remove();
+                }
+            });
+    }
+</script>
+{% endblock %} 

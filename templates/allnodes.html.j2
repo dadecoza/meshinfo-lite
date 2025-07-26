@@ -1,0 +1,44 @@
+{% set this_page = "allnodes" %}
+{% extends "layout.html.j2" %}
+
+{% block title %}All Nodes | MeshInfo{% endblock %}
+
+{% block og_title %}All Nodes | {{ config['mesh']['name'] }}{% endblock %}
+{% block og_description %}Complete list of all nodes in the {{ config['mesh']['short_name'] }} mesh network, including offline nodes. Search, filter, and view detailed node information.{% endblock %}
+{% block og_image_width %}1200{% endblock %}
+{% block og_image_height %}630{% endblock %}
+{% block twitter_title %}All Nodes | {{ config['mesh']['name'] }}{% endblock %}
+{% block twitter_description %}Complete list of all nodes in the {{ config['mesh']['short_name'] }} mesh network, including offline nodes. Search, filter, and view detailed node information.{% endblock %}
+{% block twitter_image_width %}1200{% endblock %}
+{% block twitter_image_height %}630{% endblock %}
+
+{% block head %}
+  {{ super() }}
+{% endblock %}
+
+{% block content %}
+{% if latest and latest.id is not none %}
+{% set lnodeid = utils.convert_node_id_from_int_to_hex(latest.id) %}
+{% if lnodeid and lnodeid in nodes %}
+{% set lnode = nodes[lnodeid] %}
+<div class="p-3 mt-1 fw-bold newest-node-welcome" style="background: #F9F9D7;">
+  📌 Welcome to our newest node, <a href="node_{{ lnodeid }}.html">{{ lnode.long_name }} ({{ lnode.short_name }})</a>.👋
+</div>
+{% endif %}
+{% endif %}
+
+{% if hw_model_filter and hw_name_filter %}
+<div class="p-3 mt-1 fw-bold" style="background: #E3F2FD;">
+  🔧 Showing nodes with hardware model: <strong>{{ hw_name_filter }}</strong>
+  <a href="/allnodes.html" class="btn btn-sm btn-outline-secondary ms-2">Clear Filter</a>
+</div>
+{% endif %}
+
+<div class="container pt-3">
+  <div class="d-flex align-items-center mb-3">
+    <h5 class="mb-0 me-2">📡 All Nodes (Including Offline)</h5>
+  </div>
+  {% include 'node_search.html.j2' %}
+  {% include 'node_table.html.j2' %}
+</div>
+{% endblock %} 

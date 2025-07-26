@@ -9,8 +9,16 @@ colorlog
 bcrypt
 pyjwt
 matplotlib
+cairocffi
+cairosvg
+Pillow
 rasterio
 scipy
 geopy
 boto3
 pytz
+Flask-Caching
+pandas
+psutil>=7.0.0
+shapely
+py-staticmaps

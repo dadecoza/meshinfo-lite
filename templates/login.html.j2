@@ -3,6 +3,25 @@
 
 {% block title %}Login | MeshInfo{% endblock %}
 
+{% block head %}
+<style>
+/* Ensure form input text is black and visible */
+.form-control {
+    color: #000000 !important;
+}
+
+.form-control::placeholder {
+    color: #6c757d !important;
+}
+
+input[type="email"],
+input[type="password"],
+input[type="text"] {
+    color: #000000 !important;
+}
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="mt-5 d-flex justify-content-center align-items-center vh-100 bg-light">
     <div class="card p-4 shadow-lg" style="width: 350px;">

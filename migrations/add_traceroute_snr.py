@@ -1,11 +1,21 @@
 import logging
 
+def clear_unread_results(cursor):
+    """Clear any unread results from the cursor"""
+    try:
+        while cursor.nextset():
+            pass
+    except:
+        pass
+
 def migrate(db):
     """
-    Improve SNR storage in traceroute table
+    Update traceroute table to store separate SNR values for forward and return paths
     """
+    cursor = None
     try:
         cursor = db.cursor()
+        clear_unread_results(cursor)
         
         # First check if the table exists
         cursor.execute("""
@@ -19,19 +29,26 @@ def migrate(db):
             logging.info("Creating traceroute table...")
             cursor.execute("""
                 CREATE TABLE traceroute (
+                    traceroute_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
                     from_id INT UNSIGNED NOT NULL,
                     to_id INT UNSIGNED NOT NULL,
-                    route VARCHAR(255),
-                    snr TEXT COMMENT 'Semicolon-separated SNR values, stored as integers (actual_value * 4)',
+                    route TEXT,
+                    route_back TEXT,
+                    snr_towards TEXT COMMENT 'Semicolon-separated SNR values for forward path',
+                    snr_back TEXT COMMENT 'Semicolon-separated SNR values for return path',
+                    success BOOLEAN DEFAULT FALSE,
+                    channel TINYINT UNSIGNED,
+                    hop_limit TINYINT UNSIGNED,
                     ts_created TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    INDEX idx_traceroute_nodes (from_id, to_id)
+                    INDEX idx_traceroute_nodes (from_id, to_id),
+                    INDEX idx_traceroute_time (ts_created)
                 )
             """)
             db.commit()
             logging.info("Created traceroute table successfully")
             return
 
-        # Check if SNR column exists
+        # Check if old SNR column exists
         cursor.execute("""
             SELECT COLUMN_TYPE 
             FROM information_schema.COLUMNS 
@@ -40,78 +57,83 @@ def migrate(db):
         """)
         result = cursor.fetchone()
         
-        if not result:
-            # SNR column doesn't exist, add it
-            logging.info("Adding SNR column to traceroute table...")
+        if result:
+            # Old SNR column exists, need to migrate to new format
+            logging.info("Migrating from single SNR column to separate forward/return SNR columns...")
+            
+            # Add new columns if they don't exist
             cursor.execute("""
                 ALTER TABLE traceroute
-                ADD COLUMN snr TEXT COMMENT 'Semicolon-separated SNR values, stored as integers (actual_value * 4)'
-            """)
-            db.commit()
-            logging.info("Added SNR column successfully")
-            return
-            
-        current_type = result[0]
-        
-        if current_type.upper() == 'VARCHAR(255)':
-            logging.info("Converting traceroute SNR column to more efficient format...")
-            
-            # Create temporary column with same type to preserve data
-            cursor.execute("""
-                ALTER TABLE traceroute
-                ADD COLUMN snr_temp VARCHAR(255)
+                ADD COLUMN IF NOT EXISTS snr_towards TEXT COMMENT 'Semicolon-separated SNR values for forward path',
+                ADD COLUMN IF NOT EXISTS snr_back TEXT COMMENT 'Semicolon-separated SNR values for return path'
             """)
             
-            # Copy existing data
+            # Copy existing SNR data to snr_towards (since historically it was forward path only)
             cursor.execute("""
                 UPDATE traceroute 
-                SET snr_temp = snr
+                SET snr_towards = snr
                 WHERE snr IS NOT NULL
             """)
             
-            # Drop old column and create new one with better type
+            # Drop old column
             cursor.execute("""
                 ALTER TABLE traceroute
-                DROP COLUMN snr,
-                ADD COLUMN snr TEXT COMMENT 'Semicolon-separated SNR values, stored as integers (actual_value * 4)'
-            """)
-            
-            # Copy data back
-            cursor.execute("""
-                UPDATE traceroute 
-                SET snr = snr_temp
-                WHERE snr_temp IS NOT NULL
-            """)
-            
-            # Drop temporary column
-            cursor.execute("""
-                ALTER TABLE traceroute
-                DROP COLUMN snr_temp
+                DROP COLUMN snr
             """)
             
             db.commit()
-            logging.info("Converted SNR column successfully")
+            logging.info("Migrated SNR columns successfully")
 
-        # Add index if it doesn't exist
+        # Add other necessary columns if they don't exist
+        cursor.execute("""
+            ALTER TABLE traceroute
+            ADD COLUMN IF NOT EXISTS traceroute_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY FIRST,
+            ADD COLUMN IF NOT EXISTS route_back TEXT AFTER route,
+            ADD COLUMN IF NOT EXISTS success BOOLEAN DEFAULT FALSE AFTER snr_back,
+            ADD COLUMN IF NOT EXISTS channel TINYINT UNSIGNED AFTER success,
+            ADD COLUMN IF NOT EXISTS hop_limit TINYINT UNSIGNED AFTER channel
+        """)
+
+        # Add indices if they don't exist
         cursor.execute("""
             SELECT COUNT(*) 
             FROM information_schema.STATISTICS
             WHERE TABLE_NAME = 'traceroute'
             AND INDEX_NAME = 'idx_traceroute_nodes'
         """)
-        has_index = cursor.fetchone()[0] > 0
+        has_node_index = cursor.fetchone()[0] > 0
         
-        if not has_index:
+        if not has_node_index:
             logging.info("Adding index on from_id, to_id...")
             cursor.execute("""
                 ALTER TABLE traceroute
                 ADD INDEX idx_traceroute_nodes (from_id, to_id)
             """)
-            db.commit()
-            logging.info("Added index successfully")
+
+        cursor.execute("""
+            SELECT COUNT(*) 
+            FROM information_schema.STATISTICS
+            WHERE TABLE_NAME = 'traceroute'
+            AND INDEX_NAME = 'idx_traceroute_time'
+        """)
+        has_time_index = cursor.fetchone()[0] > 0
+        
+        if not has_time_index:
+            logging.info("Adding index on ts_created...")
+            cursor.execute("""
+                ALTER TABLE traceroute
+                ADD INDEX idx_traceroute_time (ts_created)
+            """)
+
+        db.commit()
+        logging.info("Migration completed successfully")
 
     except Exception as e:
         logging.error(f"Error performing traceroute SNR migration: {e}")
         raise
     finally:
-        cursor.close()
+        if cursor:
+            try:
+                cursor.close()
+            except:
+                pass

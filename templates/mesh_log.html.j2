@@ -3,6 +3,19 @@
 
 {% block title %}Mesh Messages{% endblock %}
 
+{% block og_title %}Mesh Messages | {{ config['mesh']['name'] }}{% endblock %}
+{% block og_description %}Raw mesh message logs for the {{ config['mesh']['short_name'] }} network. View all messages received since server restart.{% endblock %}
+{% block og_image_width %}1200{% endblock %}
+{% block og_image_height %}630{% endblock %}
+{% block twitter_title %}Mesh Messages | {{ config['mesh']['name'] }}{% endblock %}
+{% block twitter_description %}Raw mesh message logs for the {{ config['mesh']['short_name'] }} network. View all messages received since server restart.{% endblock %}
+{% block twitter_image_width %}1200{% endblock %}
+{% block twitter_image_height %}630{% endblock %}
+
+{% block head %}
+  {{ super() }}
+{% endblock %}
+
 {% block content %}
 <div class="container pt-3">
   <h5>Mesh Messages</h5>

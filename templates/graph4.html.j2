@@ -1,0 +1,343 @@
+{% set this_page = "graph" %}
+{% extends "layout.html.j2" %}
+
+{% block title %}Graph | MeshInfo{% endblock %}
+
+{% block og_title %}Network Graph | {{ config['mesh']['name'] }}{% endblock %}
+{% block og_description %}Interactive network graph showing node connections and relationships in the {{ config['mesh']['short_name'] }} mesh network. View neighbor info and zero-hop connections.{% endblock %}
+{% block og_image_width %}1200{% endblock %}
+{% block og_image_height %}630{% endblock %}
+{% block twitter_title %}Network Graph | {{ config['mesh']['name'] }}{% endblock %}
+{% block twitter_description %}Interactive network graph showing node connections and relationships in the {{ config['mesh']['short_name'] }} mesh network. View neighbor info and zero-hop connections.{% endblock %}
+{% block twitter_image_width %}1200{% endblock %}
+{% block twitter_image_height %}630{% endblock %}
+
+{% block head %}
+  {{ super() }}
+{% endblock %}
+
+{% block content %}
+  <div class="container pt-3">
+  <h5>{{ this_page.title() }}</h5>
+
+  <div class="btn-group mb-3" role="group" aria-label="View type">
+    <a href="{{ url_for('graph4', view_type='neighbor_info') }}"
+       class="btn btn-{{ 'primary' if view_type == 'neighbor_info' else 'outline-primary' }}">
+      Neighbor Info
+    </a>
+    <a href="{{ url_for('graph4', view_type='zero_hop') }}"
+       class="btn btn-{{ 'primary' if view_type == 'zero_hop' else 'outline-primary' }}">
+      Zero Hop
+    </a>
+    <a href="{{ url_for('graph4', view_type='merged') }}"
+       class="btn btn-{{ 'primary' if view_type == 'merged' else 'outline-primary' }}">
+      Merged
+    </a>
+  </div>
+  <p>
+    Connections shown: <span class="text-primary">Blue solid lines</span> = Neighbor Info module messages, 
+    <span class="text-success">Green dashed lines</span> = LoRa message reception (Zero Hop). 
+    Merged view shows both types.
+  </p>
+  </div>
+  <div id="cy" style="width: 100%; height: 85vh;"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+  <script src="https://unpkg.com/webcola/WebCola/cola.min.js"></script>
+  <script src="https://unpkg.com/cytoscape-cola/cytoscape-cola.js"></script>
+  <script src="https://unpkg.com/@popperjs/core@2"></script>
+  <script src="https://unpkg.com/tippy.js@6"></script>
+  <script src="https://unpkg.com/cytoscape-popper@2.0.0/cytoscape-popper.js"></script>
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape-panzoom/2.5.3/cytoscape-panzoom.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/tippy.js@6/themes/light-border.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cytoscape-panzoom/2.5.3/cytoscape.js-panzoom.min.css">
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // Register Cola layout
+      cytoscape.use(cytoscapeCola);
+
+      var graphData = {{ graph|tojson|safe }};
+
+      // Transform data into Cytoscape format
+      var elements = {
+        nodes: graphData.nodes.map(node => ({
+          data: {
+            id: node.id,
+            short: node.id,
+            long_name: node.node_data.long_name || 'Unknown Name',
+            nodeData: node.node_data,
+            image: node.icon_url
+          }
+        })),
+        edges: graphData.edges.map(edge => ({
+          data: {
+            id: edge.from + '-' + edge.to,
+            source: edge.from,
+            target: edge.to,
+            edgeData: edge.edge_data
+          }
+        }))
+      };
+
+      // Create the cy instance
+      var cy = window.cy = cytoscape({
+        container: document.getElementById('cy'),
+        elements: elements,
+        style: [
+          {
+            selector: 'node',
+            style: {
+              'background-image': 'data(image)',
+              'background-fit': 'contain',
+              'background-color': '#f8f9fa',
+              'width': '35px',
+              'height': '35px',
+              'label': 'data(long_name)',
+              'text-wrap': 'wrap',
+              'text-max-width': '100px',
+              'text-valign': 'bottom',
+              'text-margin-y': '6px',
+              'font-size': '12px',
+              'font-weight': '600',
+              'text-background-color': '#ffffff',
+              'text-background-opacity': 0.8,
+              'text-background-padding': '2px',
+              'overlay-padding': '6px',
+              'z-index': 1000
+            }
+          },
+          {
+            selector: 'edge',
+            style: {
+              'width': 2,
+              'line-color': function(ele) {
+                var sourceType = ele.data('edgeData').source_type;
+                return sourceType === 'neighbor_info' ? '#0d6efd' : '#198754';
+              },
+              'line-style': function(ele) {
+                return ele.data('edgeData').source_type === 'zero_hop' ? 'dashed' : 'solid';
+              },
+              'curve-style': 'bezier',
+              'opacity': 0.8,
+              'z-index': 999
+            }
+          },
+          {
+            selector: '.highlighted',
+            style: {
+              'opacity': 1,
+              'width': 3,
+              'line-color': '#ffc107',
+              'z-index': 9999
+            }
+          },
+          {
+            selector: '.faded',
+            style: {
+              'opacity': 0.2
+            }
+          },
+          {
+            selector: '.highlighted-node',
+            style: {
+              'border-width': '2px',
+              'border-color': '#ffc107',
+              'border-opacity': 1,
+              'background-color': '#fff3cd',
+              'z-index': 9999
+            }
+          }
+        ],
+        layout: {
+            name: 'cola',
+            animate: true,
+            refresh: 1,
+            maxSimulationTime: 500,
+            nodeDimensionsIncludeLabels: true,
+            fit: true,
+            padding: 50,
+            centerGraph: true,
+            // Calculate bounding box from container
+            boundingBox: {
+            x1: 0,
+            y1: 0,
+            w: document.getElementById('cy').offsetWidth,
+            h: document.getElementById('cy').offsetHeight
+            },
+            
+            // Layout settings
+            avoidOverlap: true,
+            handleDisconnected: true,
+            randomize: true,
+            convergenceThreshold: 0.0001,
+            flow: { axis: 'y', minSeparation: 50 },
+            
+            // More iterations for better optimization
+            unconstrIter: 1000,
+            userConstIter: 1000,
+            allConstIter: 1000,
+            gridSnapIterations: 100,
+
+            // Faster initial layout
+            initialUnconstrainedIterations: 1000,
+            initialUserConstraintIterations: 1000,
+            initialAllConstraintsIterations: 100,
+
+            groups: function() {
+                // Create groups of nodes based on their connectivity
+                const groups = [];
+                const processed = new Set();
+                
+                cy.nodes().forEach(function(node) {
+                    if (!processed.has(node.id())) {
+                        const connections = node.degree();
+                        if (connections > 2) {
+                            // Group highly connected nodes with their immediate neighbors
+                            const group = [node].concat(node.neighborhood('node').toArray());
+                            groups.push(group);
+                            group.forEach(n => processed.add(n.id()));
+                        }
+                    }
+                });
+                
+                return groups;
+            },
+            
+            // Edge length function - differentiate between heard vs hearing connections
+            edgeLength: function(edge) {
+                const sourceConnections = edge.source().degree();
+                const targetConnections = edge.target().degree();
+                const edgeType = edge.data('edgeData').source_type;
+                const maxConnections = Math.max(sourceConnections, targetConnections);
+                
+                // Base length multiplier - shorter for neighbor_info (heard others), longer for zero_hop (were heard)
+                const multiplier = edgeType === 'neighbor_info' ? 0.8 : 1.2;
+                
+                // Calculate base length based on connectivity
+                let baseLength;
+                if (maxConnections <= 1) {
+                    baseLength = 50;  // Single connection
+                } else if (maxConnections <= 2) {
+                    baseLength = 75;  // Two connections
+                } else if (maxConnections <= 5) {
+                    baseLength = 100; // 3-5 connections
+                } else if (maxConnections >= 8) {
+                    baseLength = 250; // 8+ connections
+                } else {
+                    baseLength = 125; // 6-7 connections
+                }
+                
+                return baseLength * multiplier;
+            }
+        }
+      });
+
+      // Initialize tooltips storage
+      window.tippies = {};
+
+      // Create and manage tooltips
+      var makeTippy = function(node) {
+        var nodeData = node.data('nodeData');
+        var content = `
+          <div style="text-align: left;">
+            <strong>ID:</strong> ${node.id()}<br>
+            <strong>Name:</strong> ${nodeData.long_name || 'Unknown Name'}<br>
+            <strong>Hardware:</strong> ${nodeData.hw_model}<br>
+            <strong>Last Seen:</strong> ${nodeData.last_seen || 'Never'}<br>
+            <strong>Connections:</strong> ${node.neighborhood().length - 1}
+          </div>
+        `;
+
+        var ref = document.createElement('div');
+        ref.style.position = 'absolute';
+        document.body.appendChild(ref);
+
+        var tip = tippy(ref, {
+          content: content,
+          trigger: 'manual',
+          placement: 'bottom',
+          arrow: true,
+          theme: 'light-border',
+          interactive: true,
+          allowHTML: true,
+          offset: [0, 200]
+        });
+
+        function updatePosition() {
+          var pos = node.renderedPosition();
+          var zoom = cy.zoom();
+          var nodeHeight = 35;
+          var labelHeight = 20;
+          ref.style.left = pos.x + 'px';
+          ref.style.top = (pos.y + (nodeHeight + labelHeight)/2) + 'px';
+        }
+
+        node.on('position', updatePosition);
+        cy.on('pan zoom resize', updatePosition);
+
+        return {
+          tip: tip,
+          ref: ref,
+          updatePosition: updatePosition
+        };
+      };
+
+      // Initialize tooltips
+      cy.nodes().forEach(function(node) {
+        window.tippies[node.id()] = makeTippy(node);
+      });
+
+      // Add hover effects for nodes
+      cy.on('mouseover', 'node', function(e) {
+        var node = e.target;
+        
+        if (window.tippy && window.tippies[node.id()]) {
+          window.tippies[node.id()].updatePosition();
+          window.tippies[node.id()].tip.show();
+        }
+        
+        node.addClass('highlighted-node');
+        var connectedEdges = node.connectedEdges();
+        var connectedNodes = connectedEdges.connectedNodes();
+        
+        connectedEdges.addClass('highlighted');
+        connectedNodes.addClass('highlighted-node');
+        
+        cy.elements()
+          .difference(connectedEdges.union(connectedNodes).union(node))
+          .addClass('faded');
+      });
+
+      cy.on('mouseout', 'node', function(e) {
+        var node = e.target;
+        
+        if (window.tippy && window.tippies[node.id()]) {
+          window.tippies[node.id()].tip.hide();
+        }
+        
+        cy.elements()
+          .removeClass('highlighted')
+          .removeClass('highlighted-node')
+          .removeClass('faded');
+      });
+
+      // Handle node clicks
+      cy.on('tap', 'node', function(e) {
+        e.preventDefault();
+        var nodeId = e.target.id();
+        window.location.href = "node_" + nodeId.replace("!", "") + ".html";
+      });
+
+      // Adjust initial viewport after layout is done
+      cy.on('layoutstop', function() {
+        cy.zoom(1);
+        cy.center();
+      });
+
+      // Add panzoom controls
+      cy.panzoom();
+    });
+  </script>
+{% endblock %}

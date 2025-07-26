@@ -3,13 +3,81 @@
 
 {% block title %}MQTT | MeshInfo{% endblock %}
 
+{% block og_title %}Logs | {{ config['mesh']['name'] }}{% endblock %}
+{% block og_description %}Browse message and event logs for the {{ config['mesh']['short_name'] }} mesh network. Track activity, errors, and network events.{% endblock %}
+{% block og_image_width %}1200{% endblock %}
+{% block og_image_height %}630{% endblock %}
+{% block twitter_title %}Logs | {{ config['mesh']['name'] }}{% endblock %}
+{% block twitter_description %}Browse message and event logs for the {{ config['mesh']['short_name'] }} mesh network. Track activity, errors, and network events.{% endblock %}
+{% block twitter_image_width %}1200{% endblock %}
+{% block twitter_image_height %}630{% endblock %}
+
+{% block head %}
+  {{ super() }}
+  <style>
+    .filter-control {
+      height: 34px !important;
+      font-size: 1rem !important;
+      padding-top: 0.25rem !important;
+      padding-bottom: 0.25rem !important;
+    }
+    .filter-bar {
+      width: 100%;
+      max-width: 100%;
+    }
+  </style>
+{% endblock %}
+
 {% block content %}
 <div class="container pt-3">
-  <h5>MQTT Messages</h5>
+  <div class="d-flex align-items-center mb-3">
+    <h5 class="mb-0 me-2">📋 MQTT Messages</h5>
+  </div>
   <p class="mb-2">
     All messages received by MQTT. Only the messages received
     since this server was last restarted are shown.
   </p>
+  
+  <!-- Filter Controls -->
+  <div class="row mb-4">
+    <div class="col-12">
+      <div class="p-3 rounded shadow-sm bg-light border mb-2 filter-bar" style="padding-left: 2vw; padding-right: 2vw;">
+        <form class="row g-3 align-items-end flex-nowrap">
+          <div class="col-md-4 col-12 flex-grow-1">
+            <label for="senderFilter" class="form-label mb-1 small text-muted">Sender Node ID</label>
+            <input type="text" class="form-control form-control-sm w-100 filter-control" id="senderFilter" placeholder="Enter hex (e.g., 7c5e2e94) or dec (e.g., 2086295188)" value="{{ node_filter or '' }}">
+          </div>
+          <div class="col-md-3 col-6 flex-grow-1">
+            <label for="messageTypeFilter" class="form-label mb-1 small text-muted">Message Type</label>
+            <select class="form-select form-select-sm w-100 filter-control" id="messageTypeFilter">
+              <option value="">All Types</option>
+              <option value="nodeinfo">Node Info</option>
+              <option value="telemetry">Telemetry</option>
+              <option value="mapreport">Map Report</option>
+              <option value="position">Position</option>
+              <option value="text">Text Message</option>
+              <option value="neighborinfo">Neighbor Info</option>
+              <option value="traceroute">Traceroute</option>
+            </select>
+          </div>
+          <div class="col-md-3 col-6 flex-grow-1">
+            <label for="channelFilter" class="form-label mb-1 small text-muted">Channel</label>
+            <select class="form-select form-select-sm w-100 filter-control" id="channelFilter">
+              <option value="">All Channels</option>
+              {% for channel in Channel %}
+                <option value="{{ channel.value }}">{{ utils.get_channel_name(channel.value) }} ({{ channel.value }})</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-2 col-12 d-flex flex-column align-items-end justify-content-end flex-nowrap mt-md-0 mt-2">
+            <span class="text-muted small mb-1 align-self-end" id="filterStatus">Showing all messages</span>
+            <button type="button" class="btn btn-secondary btn-sm" id="clearFilters">Clear All Filters</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <div class="table-responsive">
     <table class="table table-striped table-bordered">
       <thead>
@@ -19,9 +87,9 @@
           <th scope="col" style="word-wrap: break-word;max-width: 300px;">Message</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="logsTableBody">
         {% for message in logs %}
-        <tr>
+        <tr class="log-row">
           <td>
             {% if message.ts_created %}
             {{ format_timestamp(message.ts_created) }}
@@ -37,4 +105,276 @@
     </table>
   </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const senderFilter = document.getElementById('senderFilter');
+    const messageTypeFilter = document.getElementById('messageTypeFilter');
+    const channelFilter = document.getElementById('channelFilter');
+    const clearFiltersBtn = document.getElementById('clearFilters');
+    const filterStatus = document.getElementById('filterStatus');
+    const logRows = document.querySelectorAll('.log-row');
+
+    // Helper function to normalize node ID for comparison
+    function normalizeNodeId(input) {
+        if (!input) return {hex: '', dec: ''};
+        let str = input.toString().toLowerCase().replace(/^!/, '');
+        // If it's hex (contains a-f), convert to decimal
+        if (/^[0-9a-f]+$/.test(str)) {
+            let dec = parseInt(str, 16).toString();
+            let hex = str.padStart(8, '0');
+            return {hex, dec};
+        }
+        // If it's decimal
+        if (/^\d+$/.test(str)) {
+            let dec = str;
+            let hex = (parseInt(str, 10) >>> 0).toString(16).padStart(8, '0');
+            return {hex, dec};
+        }
+        return {hex: str, dec: str};
+    }
+
+    // Helper function to extract and normalize node ID from message JSON
+    function extractNodeIdFromMessage(messageText) {
+        // Try to parse as JSON first
+        try {
+            let jsonText = messageText.replace(/'/g, '"');
+            let obj = JSON.parse(jsonText);
+            let val = undefined;
+            if (typeof obj === 'object') {
+                if (obj.from !== undefined) val = obj.from;
+                else if (obj.decoded && obj.decoded.from !== undefined) val = obj.decoded.from;
+                else if (obj.payload && obj.payload.from !== undefined) val = obj.payload.from;
+            }
+            if (val !== undefined) {
+                return normalizeNodeId(val);
+            }
+        } catch (e) {
+            // fallback to regex
+            const patterns = [
+                /"from":\s*"?([^",}\s]+)"?/,  // Basic pattern
+                /"from":\s*"([^"]+)"/,        // Quoted string pattern
+                /"from":\s*(\d+)/,            // Decimal number pattern
+                /"from":\s*"!([^"]+)"/        // Hex with ! prefix pattern
+            ];
+            for (let pattern of patterns) {
+                const match = messageText.match(pattern);
+                if (match && match[1]) {
+                    return normalizeNodeId(match[1]);
+                }
+            }
+        }
+        return {hex: '', dec: ''};
+    }
+
+    // Helper function to extract message type from message JSON
+    function extractMessageTypeFromMessage(messageText) {
+        // Try to parse as JSON first
+        try {
+            let jsonText = messageText.replace(/'/g, '"');
+            let obj = JSON.parse(jsonText);
+            let val = undefined;
+            if (typeof obj === 'object') {
+                if (obj.type !== undefined) val = obj.type;
+                else if (obj.decoded && obj.decoded.type !== undefined) val = obj.decoded.type;
+                else if (obj.payload && obj.payload.type !== undefined) val = obj.payload.type;
+            }
+            if (val !== undefined) {
+                return val.toString().toLowerCase();
+            }
+        } catch (e) {
+            // fallback to regex
+            const patterns = [
+                /"type":\s*"?([^",}\s]+)"?/,  // Basic pattern
+                /"type":\s*"([^"]+)"/         // Quoted string pattern
+            ];
+            for (let pattern of patterns) {
+                const match = messageText.match(pattern);
+                if (match && match[1]) {
+                    return match[1].toLowerCase();
+                }
+            }
+        }
+        return '';
+    }
+
+    // Helper function to extract channel from message JSON
+    function extractChannelFromMessage(messageText) {
+        // Try to parse as JSON first
+        try {
+            let jsonText = messageText.replace(/'/g, '"');
+            let obj = JSON.parse(jsonText);
+            let val = undefined;
+            if (typeof obj === 'object') {
+                if (obj.channel !== undefined) val = obj.channel;
+                else if (obj.decoded && obj.decoded.channel !== undefined) val = obj.decoded.channel;
+                else if (obj.payload && obj.payload.channel !== undefined) val = obj.payload.channel;
+            }
+            if (val !== undefined) {
+                return val.toString();
+            }
+        } catch (e) {
+            // fallback to regex
+            const patterns = [
+                /"channel":\s*"?([^",}\s]+)"?/,  // Basic pattern
+                /"channel":\s*(\d+)/               // Decimal number pattern
+            ];
+            for (let pattern of patterns) {
+                const match = messageText.match(pattern);
+                if (match && match[1]) {
+                    return match[1].toString();
+                }
+            }
+        }
+        return '';
+    }
+
+    // Function to apply filters
+    function applyFilters() {
+        const senderValue = normalizeNodeId(senderFilter.value);
+        const messageTypeValue = messageTypeFilter.value.toLowerCase();
+        const channelValue = channelFilter.value;
+        
+        let visibleCount = 0;
+        let totalCount = logRows.length;
+        let debugRows = 0;
+
+        logRows.forEach(row => {
+            const messageText = row.querySelector('td:last-child').textContent;
+            const senderId = extractNodeIdFromMessage(messageText);
+            const messageType = extractMessageTypeFromMessage(messageText);
+            const channel = extractChannelFromMessage(messageText);
+
+            // Debug: log the first 10 rows' sender info
+            if (debugRows < 10) {
+                console.log('Row debug:', {
+                    senderId,
+                    senderValue,
+                    messageType,
+                    channel,
+                    messageText: messageText.slice(0, 200) // show first 200 chars
+                });
+                debugRows++;
+            }
+
+            let showRow = true;
+
+            // Apply sender filter (match if either hex or decimal matches)
+            if ((senderValue.hex || senderValue.dec) &&
+                senderId.hex !== senderValue.hex &&
+                senderId.dec !== senderValue.dec) {
+                showRow = false;
+            }
+
+            // Apply message type filter
+            if (messageTypeValue && messageType !== messageTypeValue) {
+                showRow = false;
+            }
+
+            // Apply channel filter
+            if (channelValue && channel.toString() !== channelValue) {
+                showRow = false;
+            }
+
+            row.style.display = showRow ? '' : 'none';
+            if (showRow) visibleCount++;
+        });
+
+        if (visibleCount === totalCount) {
+            filterStatus.textContent = 'Showing all messages';
+        } else {
+            filterStatus.textContent = `Showing ${visibleCount} of ${totalCount}`;
+        }
+    }
+
+    // Event listeners
+    senderFilter.addEventListener('input', applyFilters);
+    messageTypeFilter.addEventListener('change', applyFilters);
+    channelFilter.addEventListener('change', applyFilters);
+
+    clearFiltersBtn.addEventListener('click', function() {
+        senderFilter.value = '';
+        messageTypeFilter.value = '';
+        channelFilter.value = '';
+        applyFilters();
+    });
+
+    // Auto-apply filter if node parameter is provided
+    {% if node_filter %}
+    // If a node filter was provided via URL, apply it automatically
+    console.log('Auto-applying node filter for: {{ node_filter }}');
+    // Trigger the input event to ensure the filter is applied
+    setTimeout(() => {
+        senderFilter.dispatchEvent(new Event('input', { bubbles: true }));
+    }, 100); // Small delay to ensure DOM is ready
+    {% endif %}
+
+    // Initial filter application
+    applyFilters();
+
+    // Utility: Convert node id to 8-char hex
+    function nodeIdToHex(id) {
+        let n = Number(id);
+        if (isNaN(n)) return '';
+        return (n >>> 0).toString(16).padStart(8, '0');
+    }
+
+    // Utility: Render JSON with links for 'from' and 'to' (no extra quotes)
+    function renderJsonWithLinks(obj, indent = 0) {
+        const INDENT = '  ';
+        if (obj === null) return 'null';
+        if (typeof obj === 'number' || typeof obj === 'boolean') return obj.toString();
+        if (typeof obj === 'string') return `"${obj.replace(/</g, '&lt;').replace(/>/g, '&gt;')}"`;
+        if (Array.isArray(obj)) {
+            if (obj.length === 0) return '[]';
+            let out = '[\n';
+            for (let i = 0; i < obj.length; i++) {
+                out += INDENT.repeat(indent + 1) + renderJsonWithLinks(obj[i], indent + 1);
+                if (i < obj.length - 1) out += ',';
+                out += '\n';
+            }
+            out += INDENT.repeat(indent) + ']';
+            return out;
+        }
+        // Object
+        let keys = Object.keys(obj);
+        if (keys.length === 0) return '{}';
+        let out = '{\n';
+        keys.forEach((key, idx) => {
+            out += INDENT.repeat(indent + 1) + `"${key}": `;
+            if ((key === 'from' || key === 'to') && typeof obj[key] === 'number') {
+                let hex = nodeIdToHex(obj[key]);
+                if (hex === 'ffffffff' || obj[key] === 4294967295) {
+                    out += '<span class="text-muted">Everyone</span>';
+                } else {
+                    out += `<a href="/node_${hex}.html">${hex}</a>`;
+                }
+            } else {
+                out += renderJsonWithLinks(obj[key], indent + 1);
+            }
+            if (idx < keys.length - 1) out += ',';
+            out += '\n';
+        });
+        out += INDENT.repeat(indent) + '}';
+        return out;
+    }
+
+    // Enhance message rendering after DOM is loaded
+    function enhanceLogMessages() {
+        document.querySelectorAll('#logsTableBody tr').forEach(row => {
+            let cell = row.querySelector('td:last-child');
+            if (!cell) return;
+            let text = cell.textContent.trim();
+            try {
+                let obj = JSON.parse(text);
+                cell.innerHTML = '<pre style="white-space: pre-wrap; word-break: break-all;">' + renderJsonWithLinks(obj) + '</pre>';
+            } catch (e) {
+                // Not JSON, leave as is
+            }
+        });
+    }
+
+    enhanceLogMessages();
+});
+</script>
 {% endblock %}

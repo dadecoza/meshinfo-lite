@@ -3,6 +3,19 @@
 
 {% block title %}User | MeshInfo{% endblock %}
 
+{% block og_title %}User Nodes | {{ config['mesh']['name'] }}{% endblock %}
+{% block og_description %}View nodes owned by {{ username }} in the {{ config['mesh']['short_name'] }} mesh network. Browse node details and network activity.{% endblock %}
+{% block og_image_width %}1200{% endblock %}
+{% block og_image_height %}630{% endblock %}
+{% block twitter_title %}User Nodes | {{ config['mesh']['name'] }}{% endblock %}
+{% block twitter_description %}View nodes owned by {{ username }} in the {{ config['mesh']['short_name'] }} mesh network. Browse node details and network activity.{% endblock %}
+{% block twitter_image_width %}1200{% endblock %}
+{% block twitter_image_height %}630{% endblock %}
+
+{% block head %}
+  {{ super() }}
+{% endblock %}
+
 {% block content %}
 <div class="container pt-3">
 <h5>Nodes owned by {{ username }}</h5>

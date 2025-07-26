@@ -1,0 +1,288 @@
+{% extends "layout.html.j2" %}
+{% set this_page = "routing" %}
+
+{% block title %}Routing Messages{% endblock %}
+
+{% block og_title %}Routing Messages | {{ config['mesh']['name'] }}{% endblock %}
+{% block og_description %}Routing message analysis for the {{ config['mesh']['short_name'] }} mesh network. Track message flow, errors, hop counts, and network performance.{% endblock %}
+{% block og_image_width %}1200{% endblock %}
+{% block og_image_height %}630{% endblock %}
+{% block twitter_title %}Routing Messages | {{ config['mesh']['name'] }}{% endblock %}
+{% block twitter_description %}Routing message analysis for the {{ config['mesh']['short_name'] }} mesh network. Track message flow, errors, hop counts, and network performance.{% endblock %}
+{% block twitter_image_width %}1200{% endblock %}
+{% block twitter_image_height %}630{% endblock %}
+
+{% block head %}
+  {{ super() }}
+{% endblock %}
+
+{% block content %}
+<div class="custom-wide-container pt-3">
+  <div class="d-flex align-items-center mb-3">
+    <h5 class="mb-0 me-2">🛣️ {{ this_page.title() }}</h5>
+  </div>
+  <div class="text-muted mb-3">
+    <small>Routing messages show how messages flow through the mesh network, including errors, hop counts, and relay nodes. This data helps identify network issues and routing efficiency.</small>
+  </div>
+
+    <!-- Statistics Row -->
+    <div class="row mb-3">
+        <div class="col-md-3">
+            <div class="text-center p-3 border rounded">
+                <h5 class="text-primary mb-0">{{ stats.total_messages|default(0) }}</h5>
+                <small class="text-muted">Total Messages</small>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="text-center p-3 border rounded">
+                <h5 class="text-success mb-0">{{ "%.1f"|format(stats.success_rate|default(0)) }}%</h5>
+                <small class="text-muted">Success Rate</small>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="text-center p-3 border rounded">
+                <h5 class="text-warning mb-0">{{ "%.1f"|format(stats.avg_hops|default(0)) }}</h5>
+                <small class="text-muted">Avg Hops</small>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="text-center p-3 border rounded">
+                <h5 class="text-danger mb-0">{{ stats.error_count|default(0) }}</h5>
+                <small class="text-muted">Errors</small>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="mb-3 routing-filters">
+        <form method="GET" class="d-flex align-items-end">
+            <div class="flex-grow-1 mr-3">
+                <label for="days" class="small mb-1">Time Period</label>
+                <select name="days" id="days" class="form-control form-control-sm">
+                    <option value="1" {% if days == 1 %}selected{% endif %}>Last 24 hours</option>
+                    <option value="7" {% if days == 7 %}selected{% endif %}>Last 7 days</option>
+                    <option value="30" {% if days == 30 %}selected{% endif %}>Last 30 days</option>
+                    <option value="90" {% if days == 90 %}selected{% endif %}>Last 90 days</option>
+                </select>
+            </div>
+            <div class="flex-grow-1 mr-3">
+                <label for="error_only" class="small mb-1">Message Type</label>
+                <select name="error_only" id="error_only" class="form-control form-control-sm">
+                    <option value="false" {% if not error_only %}selected{% endif %}>All Messages</option>
+                    <option value="true" {% if error_only %}selected{% endif %}>Errors Only</option>
+                </select>
+            </div>
+            <div class="flex-grow-1 mr-4">
+                <label for="per_page" class="small mb-1">Per Page</label>
+                <select name="per_page" id="per_page" class="form-control form-control-sm">
+                    <option value="25" {% if pagination.per_page == 25 %}selected{% endif %}>25</option>
+                    <option value="50" {% if pagination.per_page == 50 %}selected{% endif %}>50</option>
+                    <option value="100" {% if pagination.per_page == 100 %}selected{% endif %}>100</option>
+                </select>
+            </div>
+            <div class="flex-shrink-0">
+                <button type="submit" class="btn btn-primary btn-sm">Apply Filters</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Error Breakdown -->
+    {% if error_breakdown %}
+    <div class="mb-3">
+        <h6>Error Breakdown</h6>
+        <div class="table-responsive">
+            <table class="table table-sm table-striped">
+                <thead>
+                    <tr>
+                        <th class="text-start">Error Type</th>
+                        <th class="text-start">Description</th>
+                        <th class="text-start">Count</th>
+                        <th class="text-start">Percentage</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for error in error_breakdown %}
+                    <tr>
+                        <td><code>{{ error.error_reason }}</code></td>
+                        <td>{{ meshtastic_support.get_routing_error_description(error.error_reason) }}</td>
+                        <td>{{ error.count }}</td>
+                        <td>{{ "%.1f"|format(error.count / stats.error_count * 100) if stats.error_count > 0 else 0 }}%</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Routing Messages Table -->
+    <div class="mb-3">
+        <h6>Routing Messages</h6>
+        {% if routing_messages %}
+        <div class="table-responsive">
+            <table class="table table-striped table-bordered table-sm">
+                            <thead>
+                                <tr>
+                                    <th class="text-start">Time</th>
+                                    <th class="text-start">From</th>
+                                    <th class="text-start">To</th>
+                                    <th class="text-start">Uplink</th>
+                                    <th class="text-start">Relay</th>
+                                    <th class="text-start">Hops</th>
+                                    <th class="text-start">Status</th>
+                                    <th class="text-start">Error</th>
+                                    <th class="text-start">Channel</th>
+                                    <th class="text-start">SNR/RSSI</th>
+                                    <th class="text-start">Request ID</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for msg in routing_messages %}
+                                <tr class="{% if msg.is_error %}table-danger{% elif msg.success %}table-success{% endif %}">
+                                    <td>{{ msg.ts_created.strftime('%Y-%m-%d %H:%M:%S') if msg.ts_created else 'N/A' }}</td>
+                                    <td>
+                                        {% if msg.from_name %}
+                                            <a href="node_{{ msg.from_id_hex }}.html">{{ msg.from_name }}</a>
+                                        {% else %}
+                                            <code>{{ msg.from_id_hex }}</code>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if msg.to_id %}
+                                            {% if msg.to_name %}
+                                                <a href="node_{{ msg.to_id_hex }}.html">{{ msg.to_name }}</a>
+                                            {% else %}
+                                                <code>{{ msg.to_id_hex }}</code>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if msg.uplink_node %}
+                                            {% if msg.uplink_name %}
+                                                <a href="node_{{ msg.uplink_node_hex }}.html">{{ msg.uplink_name }}</a>
+                                            {% else %}
+                                                <code>{{ msg.uplink_node_hex }}</code>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if msg.relay_node %}
+                                            <code>{{ msg.relay_node[-2:] }}</code>
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if msg.hops_taken is not none %}
+                                            {{ msg.hops_taken }}
+                                            {% if msg.hop_limit and msg.hop_start %}
+                                                ({{ msg.hop_start }}/{{ msg.hop_limit }})
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if msg.is_error %}
+                                            <span class="badge bg-danger">Error</span>
+                                        {% elif msg.success %}
+                                            <span class="badge bg-success">Success</span>
+                                        {% else %}
+                                            <span class="badge bg-warning">Unknown</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if msg.error_description and msg.error_reason != 0 %}
+                                            <span class="text-danger">{{ meshtastic_support.get_routing_error_description(msg.error_reason) }}</span>
+                                        {% elif msg.error_description %}
+                                            <span class="text-muted">{{ meshtastic_support.get_routing_error_description(msg.error_reason) }}</span>
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if msg.channel %}
+                                            <code>{{ msg.channel }}</code>
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if msg.rx_snr is not none or msg.rx_rssi is not none %}
+                                            {% if msg.rx_snr is not none %}{{ "%.1f"|format(msg.rx_snr) }}{% else %}-{% endif %}/
+                                            {% if msg.rx_rssi is not none %}{{ "%.0f"|format(msg.rx_rssi) }}{% else %}-{% endif %}
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if msg.request_id is not none %}
+                                            <code>{{ msg.request_id }}</code>
+                                        {% else %}
+                                            <span class="text-muted">-</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Pagination -->
+                    {% if pagination.pages > 1 %}
+                    <nav aria-label="Routing messages pagination">
+                        <ul class="pagination justify-content-center">
+                            {% if pagination.page > 1 %}
+                            <li class="page-item">
+                                <a class="page-link" href="?page={{ pagination.page - 1 }}&per_page={{ pagination.per_page }}&error_only={{ error_only|lower }}&days={{ days }}">Previous</a>
+                            </li>
+                            {% endif %}
+                            
+                            {% for p in range(1, pagination.pages + 1) %}
+                                {% if p == pagination.page %}
+                                <li class="page-item active">
+                                    <span class="page-link">{{ p }}</span>
+                                </li>
+                                {% elif p <= 3 or p >= pagination.pages - 2 or (p >= pagination.page - 2 and p <= pagination.page + 2) %}
+                                <li class="page-item">
+                                    <a class="page-link" href="?page={{ p }}&per_page={{ pagination.per_page }}&error_only={{ error_only|lower }}&days={{ days }}">{{ p }}</a>
+                                </li>
+                                {% elif p == 4 and pagination.page > 6 %}
+                                <li class="page-item disabled">
+                                    <span class="page-link">...</span>
+                                </li>
+                                {% elif p == pagination.pages - 3 and pagination.page < pagination.pages - 5 %}
+                                <li class="page-item disabled">
+                                    <span class="page-link">...</span>
+                                </li>
+                                {% endif %}
+                            {% endfor %}
+                            
+                            {% if pagination.page < pagination.pages %}
+                            <li class="page-item">
+                                <a class="page-link" href="?page={{ pagination.page + 1 }}&per_page={{ pagination.per_page }}&error_only={{ error_only|lower }}&days={{ days }}">Next</a>
+                            </li>
+                            {% endif %}
+                        </ul>
+                    </nav>
+                    {% endif %}
+
+                    <div class="text-center text-muted">
+                        Showing {{ routing_messages|length }} of {{ pagination.total }} routing messages
+                    </div>
+                    {% else %}
+                    <div class="text-center text-muted py-4">
+                        <h5>No routing messages found</h5>
+                        <p>Try adjusting your filters or check back later.</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div
+    </div>
+</div>
+{% endblock %} 

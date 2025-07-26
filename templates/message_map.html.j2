@@ -2,9 +2,20 @@
 
 {% block title %}Message Map | MeshInfo{% endblock %}
 {% block head %}
-  <script src="https://cdn.jsdelivr.net/npm/openlayers@4.6.5/dist/ol.min.js"></script>
-  <link href="https://cdn.jsdelivr.net/npm/openlayers@4.6.5/dist/ol.min.css" rel="stylesheet">
+  {{ super() }}
+  {% include "map_dependencies.html.j2" %}
 {% endblock %}
+
+{% block og_image %}{{ url_for('og_image_message_map', message_id=message.id, _external=True) }}{% endblock %}
+{% block og_image_width %}800{% endblock %}
+{% block og_image_height %}400{% endblock %}
+{% block og_title %}Message from {{ nodes[utils.convert_node_id_from_int_to_hex(message.from_id)].long_name if message.from_id and utils.convert_node_id_from_int_to_hex(message.from_id) in nodes else 'Unknown' }} | {{ config['mesh']['name'] }}{% endblock %}
+{% block og_description %}{{ message.text|truncate(120, True, '...') }}{% endblock %}
+{% block twitter_title %}Message from {{ nodes[utils.convert_node_id_from_int_to_hex(message.from_id)].long_name if message.from_id and utils.convert_node_id_from_int_to_hex(message.from_id) in nodes else 'Unknown' }} | {{ config['mesh']['name'] }}{% endblock %}
+{% block twitter_description %}{{ message.text|truncate(120, True, '...') }}{% endblock %}
+{% block twitter_image %}{{ url_for('og_image_message_map', message_id=message.id, _external=True) }}{% endblock %}
+{% block twitter_image_width %}800{% endblock %}
+{% block twitter_image_height %}400{% endblock %}
 
 {% block content %}
 <div class="container pt-3">
@@ -15,24 +26,106 @@
   <div class="card mb-3">
     <div class="card-body">
       <h5 class="card-title">Message Details</h5>
-      <p class="card-text">
-        <strong>From:</strong> 
-        {% set from_id = utils.convert_node_id_from_int_to_hex(message.from_id) %}
-        {% if from_id in nodes and nodes[from_id].position and nodes[from_id].position.longitude_i is not none and nodes[from_id].position.latitude_i is not none %}
-          <a href="node_{{ from_id }}.html">{{ nodes[from_id].long_name }} ({{ nodes[from_id].short_name }})</a>
-        {% else %}
-          Unknown
-        {% endif %}
-        <br>
-        <strong>Time:</strong> {{ format_timestamp(message.ts_created) }}<br>
-        <strong>Message:</strong> {{ message.text }}
-      </p>
+      <div class="row">
+        <div class="col-md-6">
+          <p class="card-text">
+            <strong>Message ID:</strong> {{ message.id }}<br>
+            <strong>From:</strong> 
+            {% set from_id = utils.convert_node_id_from_int_to_hex(message.from_id) %}
+            {% if from_id in nodes %}
+              <a href="node_{{ from_id }}.html">{{ nodes[from_id].long_name }} ({{ nodes[from_id].short_name }})</a>
+            {% else %}
+              Unknown
+            {% endif %}
+            <br>
+            <strong>To:</strong>
+            {% set to_id = None %}
+            {% if message.to_id is defined and message.to_id is not none %}
+              {% set to_id = utils.convert_node_id_from_int_to_hex(message.to_id) %}
+            {% endif %}
+            {% if message.to_id is not defined or message.to_id is none or message.to_id == 4294967295 or (to_id is string and to_id == 'ffffffff') %}
+              Everyone (Broadcast)
+            {% elif to_id in nodes %}
+              <a href="node_{{ to_id }}.html">{{ nodes[to_id].long_name }} ({{ nodes[to_id].short_name }})</a>
+            {% else %}
+              Unknown
+            {% endif %}
+            <br>
+            <strong>Channel:</strong>
+            {% if message.channel is not none %}
+              <span class="badge align-middle" style="background-color: {{ utils.get_channel_color(message.channel) }}; color: white; font-size: 0.95em; padding: 2px 8px; border-radius: 4px;" title="Channel {{ message.channel }} ({{ utils.get_channel_name(message.channel) }})">
+                {{ utils.get_channel_name(message.channel) }} ({{ message.channel }})
+              </span>
+            {% else %}
+              <span class="badge bg-danger">Unknown ()</span>
+            {% endif %}
+            <br>
+            <strong>Time:</strong> {{ format_timestamp(message.ts_created) }}<br>
+          </p>
+        </div>
+        <div class="col-md-6">
+          <p class="card-text">
+            <strong>Reception Summary:</strong><br>
+            {% if receiver_details %}
+              <!-- Debug: receiver_details has {{ receiver_details|length }} items -->
+              {% set ns = namespace(direct_count=0, relayed_count=0) %}
+              {% for detail in receiver_details.values() %}
+                <!-- Debug: detail.hop_start = {{ detail.hop_start }}, detail.hop_limit = {{ detail.hop_limit }} -->
+                {% if detail.hop_start is not none and detail.hop_limit is not none %}
+                  {% set hop_start = detail.hop_start|int %}
+                  {% set hop_limit = detail.hop_limit|int %}
+                  <!-- Debug: hop_start = {{ hop_start }}, hop_limit = {{ hop_limit }} -->
+                  {% if hop_start == hop_limit %}
+                    {% set ns.direct_count = ns.direct_count + 1 %}
+                  {% elif hop_start > hop_limit %}
+                    {% set ns.relayed_count = ns.relayed_count + 1 %}
+                  {% endif %}
+                {% else %}
+                  <!-- Debug: No hop info - treating as direct (likely direct message) -->
+                  {% set ns.direct_count = ns.direct_count + 1 %}
+                {% endif %}
+              {% endfor %}
+              <!-- Debug: direct_count: {{ ns.direct_count }}, relayed_count: {{ ns.relayed_count }} -->
+              {% set total = ns.direct_count + ns.relayed_count %}
+              {% if total > 0 %}
+                • <strong>{{ total }}</strong> nodes reported reception
+                {% if ns.direct_count == total %}
+                  (all direct)
+                {% elif ns.relayed_count == total %}
+                  (all relayed)
+                {% elif ns.direct_count > 0 and ns.relayed_count > 0 %}
+                  ({{ ns.direct_count }} direct, {{ ns.relayed_count }} relayed)
+                {% endif %}
+                <br>
+              {% endif %}
+            {% endif %}
+            {% if sender_position and sender_position.position_time %}
+            <strong>Sender Position Updated:</strong> {{ format_timestamp(sender_position.position_time) }}<br>
+            {% endif %}
+            {% if convex_hull_area_km2 is not none %}
+            <strong>Convex Hull Area:</strong> <span title="Convex hull area: The smallest polygon that contains all sender and receiver positions for this message.">{{ '%.2f' % convex_hull_area_km2 }} km²</span><br>
+            {% endif %}
+          </p>
+        </div>
+      </div>
+      <div class="row">
+        <div class="col-12">
+          <div class="message-map-box">
+            <span class="fw-bold" style="font-size: 1rem;">Message:</span>
+            <span style="font-size: 1.05rem; font-weight: 500; margin-left: 0.5em; word-break: break-word;">{{ message.text }}</span>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
-  <div id="map" style="height: 70vh; width: 100%;"></div>
-  
-  <div id="legend" class="p-2" style="background-color: #ffffff;">
+  <div id="map" style="height: 70vh; width: 100%; position: relative;"></div>
+  <!-- Convex Hull Toggle -->
+  <div style="margin: 12px 0 0 0; padding: 8px 12px; background: #fff; border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,0.2); width: fit-content;">
+    <input type="checkbox" id="showConvexHull" />
+    <label for="showConvexHull">Show Convex Hull</label>
+  </div>
+  <div id="legend" class="p-2 mt-3" style="background-color: #ffffff; border-radius: 4px; box-shadow: 0 1px 4px rgba(0,0,0,0.2);">
     <div>LEGEND</div>
     <div>
       <div style="background-color: #FF6666; height: 4px; width: 25px; display: inline-flex;"></div> Direct Reception
@@ -44,39 +137,60 @@
 </div>
 
 <script type="module">
-  const map = new ol.Map({
+  import Map from 'ol/Map.js';
+  import View from 'ol/View.js';
+  import TileLayer from 'ol/layer/Tile.js';
+  import OSM from 'ol/source/OSM.js';
+  import VectorLayer from 'ol/layer/Vector.js';
+  import VectorSource from 'ol/source/Vector.js';
+  import Feature from 'ol/Feature.js';
+  import Point from 'ol/geom/Point.js';
+  import LineString from 'ol/geom/LineString.js';
+  import {fromLonLat, toLonLat} from 'ol/proj.js';
+  import Style from 'ol/style/Style.js';
+  import Circle from 'ol/style/Circle.js';
+  import Fill from 'ol/style/Fill.js';
+  import Stroke from 'ol/style/Stroke.js';
+  import Text from 'ol/style/Text.js';
+  import Overlay from 'ol/Overlay.js';
+  import { isEmpty } from 'ol/extent.js';
+  import Polygon from 'ol/geom/Polygon.js';
+
+  var nodes = {{ nodes|tojson|safe }};
+
+  const map = new Map({
     layers: [
-      new ol.layer.Tile({
-        source: new ol.source.OSM(),
+      new TileLayer({
+        source: new OSM(),
       }),
     ],
     target: 'map',
-    view: new ol.View({
-      center: ol.proj.fromLonLat([0, 0]),
+    view: new View({
+      center: fromLonLat([0, 0]),
       zoom: 2,
     }),
   });
 
-  var senderStyle = new ol.style.Style({
-    image: new ol.style.Circle({
+  var senderStyle = new Style({
+    image: new Circle({
       radius: 8,
-      fill: new ol.style.Fill({
+      fill: new Fill({
         color: '#FF4444'
       }),
-      stroke: new ol.style.Stroke({
+      stroke: new Stroke({
         color: 'white',
         width: 2
       })
     })
   });
 
-  var receiverStyle = new ol.style.Style({
-    image: new ol.style.Circle({
+  var receiverStyle = new Style({
+    image: new Circle({
       radius: 6,
-      fill: new ol.style.Fill({
+      fill: new Fill({
         color: '#4444FF'
       }),
-      stroke: new ol.style.Stroke({
+      stroke: new Stroke({
         color: 'white',
         width: 2
       })
@@ -91,85 +205,113 @@
     ) * 111.32 * 100) / 100;  // Convert to km and round to 2 decimal places
   }
 
+  // Add function to format timestamp
+  function formatTimestamp(timestamp) {
+    if (!timestamp) return 'Unknown';
+    const date = new Date(timestamp * 1000);
+    return date.toLocaleString();
+  }
+
   const features = [];
   const lines = [];
   const labels = [];
-  
-  // Add sender
-  {% set from_id = utils.convert_node_id_from_int_to_hex(message.from_id) %}
-  {% if from_id in nodes and nodes[from_id].position and nodes[from_id].position.longitude_i is not none and nodes[from_id].position.latitude_i is not none %}
-    var sender = new ol.Feature({
-        geometry: new ol.geom.Point(ol.proj.fromLonLat([
-            {{ nodes[from_id].position.longitude_i / 10000000 }},
-            {{ nodes[from_id].position.latitude_i / 10000000 }}
+  let senderFeature = null;
+
+  // Add sender using sender_position
+  {% set from_id_hex = utils.convert_node_id_from_int_to_hex(message.from_id) %}
+  {% if sender_position and sender_position.longitude_i is not none and sender_position.latitude_i is not none %}
+    senderFeature = new Feature({
+        geometry: new Point(fromLonLat([
+            {{ sender_position.longitude_i / 10000000 }},
+            {{ sender_position.latitude_i / 10000000 }}
         ])),
         node: {
-            id: '{{ from_id }}',
-            name: '{{ nodes[from_id].short_name }}',
-            longName: '{{ nodes[from_id].long_name }}',
+            id: '{{ from_id_hex }}',
+            {# Get names from the main nodes dict #}
+            name: {{ nodes[from_id_hex].short_name|tojson if from_id_hex in nodes else '"???"' }},
+            longName: {{ nodes[from_id_hex].long_name|tojson if from_id_hex in nodes else '"Unknown Sender"' }},
             type: 'sender',
-            lat: {{ nodes[from_id].position.latitude_i / 10000000 }},
-            lon: {{ nodes[from_id].position.longitude_i / 10000000 }}
+            lat: {{ sender_position.latitude_i / 10000000 }},
+            lon: {{ sender_position.longitude_i / 10000000 }},
+            positionTime: {{ sender_position.position_time }}
         }
-        });
-    sender.setStyle(senderStyle);
-    features.push(sender);
+    });
+    senderFeature.setStyle(senderStyle);
+    features.push(senderFeature);
     
-    // Add receivers and lines
-    {% for reception in message.receptions %}
-      {% set rid = utils.convert_node_id_from_int_to_hex(reception.node_id) %}
-      {% if rid in nodes and nodes[rid].position and nodes[rid].position.longitude_i is not none and nodes[rid].position.latitude_i is not none %}
-        var receiver = new ol.Feature({
-            geometry: new ol.geom.Point(ol.proj.fromLonLat([
-                {{ nodes[rid].position.longitude_i / 10000000 }},
-                {{ nodes[rid].position.latitude_i / 10000000 }}
-            ])),
-            node: {
-                id: '{{ rid }}',
-                name: '{{ nodes[rid].short_name }}',
-                longName: '{{ nodes[rid].long_name }}',
-                snr: {{ reception.rx_snr }},
-                hops: {% if reception.hop_start is not none %}{{ reception.hop_start - reception.hop_limit }}{% else %}0{% endif %},
-                type: 'receiver',
-                lat: {{ nodes[rid].position.latitude_i / 10000000 }},
-                lon: {{ nodes[rid].position.longitude_i / 10000000 }}
-            }
-            });
-        receiver.setStyle(receiverStyle);
-        features.push(receiver);
-        
-        // Calculate coordinates and distance
-        var fromCoord = [
-          {{ nodes[from_id].position.longitude_i / 10000000 }},
-          {{ nodes[from_id].position.latitude_i / 10000000 }}
-        ];
-        var toCoord = [
-          {{ nodes[rid].position.longitude_i / 10000000 }},
-          {{ nodes[rid].position.latitude_i / 10000000 }}
-        ];
-        
-        var distance = calculateDistance(fromCoord[1], fromCoord[0], toCoord[1], toCoord[0]);
-        var hops = {% if reception.hop_start is not none %}{{ reception.hop_start - reception.hop_limit }}{% else %}0{% endif %};
-        
-        // Create line
-        var points = [fromCoord, toCoord];
-        for (var i = 0; i < points.length; i++) {
-          points[i] = ol.proj.transform(points[i], 'EPSG:4326', 'EPSG:3857');
-        }
-        
-        var line = new ol.Feature({
-          geometry: new ol.geom.LineString(points)
+    // Add receivers and lines - only if sender position is known
+    {% for receiver_id in message.receiver_ids %}
+      var currentReceiverId = {{ receiver_id }}; // Store JS variable for clarity
+      console.log("Processing Receiver ID:", currentReceiverId);
+
+      {# Use receiver_positions dict for location #}
+      {% set receiver_pos = receiver_positions.get(receiver_id) %}
+      var receiverPosData = {{ receiver_pos | tojson if receiver_pos is defined else 'null' }};
+      console.log(" -> Position data from backend:", receiverPosData);
+      {% if receiver_pos and receiver_pos.longitude_i is not none and receiver_pos.latitude_i is not none %}
+        console.log(" -> Position check PASSED for", currentReceiverId);
+      try {
+        var lon = {{ receiver_pos.longitude_i / 10000000 }};
+        var lat = {{ receiver_pos.latitude_i / 10000000 }};
+        console.log(`   Coords: lon=${lon}, lat=${lat}`);
+
+        var pointGeom = new Point(fromLonLat([lon, lat]));
+        console.log("   Created ol.geom.Point");
+
+        {% set rid_hex = utils.convert_node_id_from_int_to_hex(receiver_id) %}
+        {% set details = receiver_details.get(receiver_id) %}
+        var nodeData = {
+            id: '{{ rid_hex }}',
+            name: {{ nodes[rid_hex].short_name|tojson if rid_hex in nodes else '"???"' }},
+            longName: {{ nodes[rid_hex].long_name|tojson if rid_hex in nodes else '"Unknown Receiver"' }},
+            snr: {{ details.rx_snr if details else 'null' }},
+            hops: {% if details and details.hop_start is not none and details.hop_limit is not none %}{{ details.hop_start - details.hop_limit }}{% else %}0{% endif %},
+            type: 'receiver',
+            lat: lat, // Use JS var
+            lon: lon, // Use JS var
+            positionTime: {{ receiver_pos.position_time }},
+            relayNode: {% if details and details.relay_node %}'{{ details.relay_node }}'{% else %}null{% endif %},
+            actualRelayNode: {% if details and details.relay_node %}{% set actual_relay = find_relay_node_by_suffix(details.relay_node[-2:], nodes, [receiver_id], message.from_id) %}{% if actual_relay %}'{{ actual_relay }}'{% else %}null{% endif %}{% else %}null{% endif %}
+        };
+        console.log("   Created nodeData object:", nodeData);
+
+        var receiver = new Feature({
+            geometry: pointGeom,
+            node: nodeData
         });
-        
-        var lineStyle = new ol.style.Style({
-          stroke: new ol.style.Stroke({
-            color: {% if reception.hop_start is not none and reception.hop_start - reception.hop_limit > 0 %}'#6666FF'{% else %}'#FF6666'{% endif %},
+        console.log("   Created ol.Feature");
+
+        receiver.setStyle(receiverStyle);
+        console.log("   Set receiver style");
+
+        features.push(receiver);
+        console.log("   Pushed receiver feature to array. Current features count:", features.length);
+
+        // Line and Label creation (can add logs here too if needed)
+        var senderCoords = senderFeature.getGeometry().getCoordinates(); // Get projected coords
+        // Transform sender's projected coords back to LonLat for fromCoord
+        var fromCoordLonLat = toLonLat(senderCoords);
+        var fromCoord = fromCoordLonLat; // Use LonLat for distance calculation
+
+        var toCoord = [lon, lat];
+        var distance = calculateDistance(fromCoord[1], fromCoord[0], toCoord[1], toCoord[0]);
+        var hops = nodeData.hops; // Use hops from nodeData
+
+        var points = [fromCoord, toCoord];
+        for (var i = 0; i < points.length; i++) { points[i] = fromLonLat(points[i]); }
+        var line = new Feature({ geometry: new LineString(points) });
+
+        var lineStyle = new Style({
+          stroke: new Stroke({
+            color: {% if details and details.hop_start is not none and details.hop_limit is not none and (details.hop_start - details.hop_limit) > 0 %}'#6666FF'{% else %}'#FF6666'{% endif %},
             width: 2
           })
         });
-        
+
         line.setStyle(lineStyle);
         lines.push(line);
+        console.log("   Pushed line feature to array.");
+
 
         // Add label at the middle of the line
         var midPoint = [
@@ -177,8 +319,8 @@
           (points[0][1] + points[1][1]) / 2
         ];
         
-        var label = new ol.Feature({
-          geometry: new ol.geom.Point(midPoint)
+        var label = new Feature({
+          geometry: new Point(midPoint)
         });
         
         var labelText = distance + ' km';
@@ -186,20 +328,20 @@
           labelText += '\n' + hops + ' hop' + (hops > 1 ? 's' : '');
         }
         
-        label.setStyle(new ol.style.Style({
-            text: new ol.style.Text({
+        label.setStyle(new Style({
+            text: new Text({
                 text: labelText,
                 font: '12px Arial',
-                fill: new ol.style.Fill({ color: '#000000' }),
-                stroke: new ol.style.Stroke({
+                fill: new Fill({ color: '#000000' }),
+                stroke: new Stroke({
                 color: '#ffffff',
                 width: 3
                 }),
                 padding: [3, 5, 3, 5],  // More balanced padding
-                backgroundFill: new ol.style.Fill({
+                backgroundFill: new Fill({
                 color: 'rgba(255, 255, 255, 0.85)'
                 }),
-                backgroundStroke: new ol.style.Stroke({
+                backgroundStroke: new Stroke({
                 color: 'rgba(0, 0, 0, 0.4)',
                 width: 1,
                 lineCap: 'round',
@@ -209,40 +351,187 @@
             }));
         
         labels.push(label);
+        console.log("   Pushed label feature to array.");
+
+      } catch (e) {
+        console.error("   ERROR processing receiver", currentReceiverId, ":", e);
+      }
+      {% else %}
+        // This block is entered - position is missing or invalid
+        console.warn(" -> Position check FAILED for", currentReceiverId);
+        if (!receiverPosData) {
+            console.warn("    Reason: No position data found in receiver_positions dict.");
+        } else if (receiverPosData.longitude_i === null || receiverPosData.longitude_i === undefined ) {
+            console.warn("    Reason: longitude_i is null or undefined.");
+        } else if (receiverPosData.latitude_i === null || receiverPosData.latitude_i === undefined) {
+            console.warn("    Reason: latitude_i is null or undefined.");
+        } else {
+            console.warn("    Reason: Unknown (check receiverPosData object).");
+        }
+      {% endif %}
+    {% endfor %}
+  {% else %}
+    // Fallback: Sender has no position, but try to show receivers with hop counts
+    console.log("Sender has no position, attempting fallback with receivers only");
+    
+    {% for receiver_id in message.receiver_ids %}
+      var currentReceiverId = {{ receiver_id }};
+      {% set receiver_pos = receiver_positions.get(receiver_id) %}
+      var receiverPosData = {{ receiver_pos | tojson if receiver_pos is defined else 'null' }};
+      console.log("Fallback processing receiver:", currentReceiverId, "Position data:", receiverPosData);
+      
+      {% if receiver_pos and receiver_pos.longitude_i is not none and receiver_pos.latitude_i is not none %}
+        console.log("Found receiver with valid position:", currentReceiverId);
+        try {
+          var lon = {{ receiver_pos.longitude_i / 10000000 }};
+          var lat = {{ receiver_pos.latitude_i / 10000000 }};
+          var pointGeom = new Point(fromLonLat([lon, lat]));
+          
+          {% set rid_hex = utils.convert_node_id_from_int_to_hex(receiver_id) %}
+          {% set details = receiver_details.get(receiver_id) %}
+          var hops = {% if details and details.hop_start is not none and details.hop_limit is not none %}{{ details.hop_start - details.hop_limit }}{% else %}0{% endif %};
+          
+          var nodeData = {
+              id: '{{ rid_hex }}',
+              name: {{ nodes[rid_hex].short_name|tojson if rid_hex in nodes else '"???"' }},
+              longName: {{ nodes[rid_hex].long_name|tojson if rid_hex in nodes else '"Unknown Receiver"' }},
+              snr: {{ details.rx_snr if details else 'null' }},
+              hops: hops,
+              type: 'receiver',
+              lat: lat,
+              lon: lon,
+              positionTime: {{ receiver_pos.position_time }},
+              relayNode: {% if details and details.relay_node %}'{{ details.relay_node }}'{% else %}null{% endif %},
+              actualRelayNode: {% if details and details.relay_node %}{% set actual_relay = find_relay_node_by_suffix(details.relay_node[-2:], nodes, [receiver_id], message.from_id) %}{% if actual_relay %}'{{ actual_relay }}'{% else %}null{% endif %}{% else %}null{% endif %}
+          };
+          
+          // Create receiver style with hop count text
+          var receiverWithHopsStyle = new Style({
+            image: new Circle({
+              radius: 8,
+              fill: new Fill({
+                color: '#4444FF'
+              }),
+              stroke: new Stroke({
+                color: 'white',
+                width: 2
+              })
+            }),
+            text: new Text({
+              text: hops > 0 ? hops.toString() : '',
+              font: 'bold 10px Arial',
+              fill: new Fill({ color: '#FFFFFF' }),
+              stroke: new Stroke({
+                color: '#000000',
+                width: 1
+              })
+            })
+          });
+          
+          var receiver = new Feature({
+              geometry: pointGeom,
+              node: nodeData
+          });
+          
+          receiver.setStyle(receiverWithHopsStyle);
+          features.push(receiver);
+          console.log("Added receiver with hop count:", hops);
+          
+        } catch (e) {
+          console.error("ERROR processing fallback receiver", currentReceiverId, ":", e);
+        }
+      {% else %}
+        console.log("Receiver has no valid position:", currentReceiverId);
       {% endif %}
     {% endfor %}
   {% endif %}
 
-  // Add features to map
-  const vectorLayer = new ol.layer.Vector({
-    source: new ol.source.Vector({
-      features: features.concat(lines).concat(labels)
-    })
-  });
-  map.addLayer(vectorLayer);
-  
-  // Fit map to features with minimum zoom
-    if (features.length > 0) {
-    var extent = vectorLayer.getSource().getExtent();
-    
-    // Get the current view
-    var view = map.getView();
-    
-    // Fit to extent with padding
-    view.fit(extent, {
-        padding: [100, 100, 100, 100],  // Increased padding
-        minResolution: 0.1,  // Ensures we don't zoom in too far
-        maxZoom: 19,  // Allow higher zoom for close nodes
-        duration: 500  // Smooth animation
-    });
+  console.log("Finished processing features. Total points:", features.length, "Total lines:", lines.length, "Total labels:", labels.length);
 
-    // If nodes are very close, ensure minimum zoom level
-    var resolution = view.getResolution();
-    if (resolution < 0.1) {  // If zoomed in too far
-        view.setResolution(0.1);  // Set minimum resolution
-        view.setCenter(ol.extent.getCenter(extent));  // Center on the features
+  // --- Refactored: Separate features by type ---
+  const lineFeatures = lines;
+  const nodeFeatures = features;
+  const labelFeatures = labels;
+
+  // Create sources
+  const lineSource = new VectorSource({ features: lineFeatures });
+  const nodeSource = new VectorSource({ features: nodeFeatures });
+  const labelSource = new VectorSource({ features: labelFeatures });
+
+  // Create layers with explicit zIndex (define first, before any function uses them)
+  let hullLayer = new VectorLayer({ source: new VectorSource(), zIndex: 1 });
+  const lineLayer = new VectorLayer({ source: lineSource, zIndex: 2 });
+  const nodeLayer = new VectorLayer({ source: nodeSource, zIndex: 3 });
+  const labelLayer = new VectorLayer({ source: labelSource, zIndex: 4 });
+
+  // Add to map in order: hull, lines, nodes, labels
+  map.addLayer(hullLayer);
+  map.addLayer(lineLayer);
+  map.addLayer(nodeLayer);
+  map.addLayer(labelLayer);
+
+  // --- Debugging Map View ---
+  var view = map.getView();
+  console.log("Initial/Current Map View State:", JSON.stringify(view.getProperties()));
+
+  if (features.length > 0) {
+    console.log("Attempting to fit map view based on point features...");
+    const pointSourceForExtent = new VectorSource({ features: features });
+    var extent = pointSourceForExtent.getExtent();
+    console.log("Calculated extent from points:", extent);
+
+    if (!isEmpty(extent) && isFinite(extent[0]) && isFinite(extent[1]) && isFinite(extent[2]) && isFinite(extent[3]) && extent[0] <= extent[2] && extent[1] <= extent[3])
+    {
+        console.log("Extent is valid. Fitting view...");
+        console.log("View state BEFORE fit:", JSON.stringify(view.getProperties()));
+        view.fit(extent, {
+            padding: [100, 100, 100, 100],
+            minResolution: view.getResolutionForZoom(19), // Use maxZoom resolution
+            maxZoom: 19,
+            duration: 0
+        });
+        console.log("Fit view called.");
+        // Log state immediately after fit call (may not reflect final state yet)
+        console.log("View state immediately AFTER fit call:", JSON.stringify(view.getProperties()));
+
+        // Log state after fit animation duration
+        setTimeout(() => {
+            console.log("View state AFTER fit timeout:", JSON.stringify(view.getProperties()));
+        }, 600); // Wait slightly longer than duration
+    } else {
+        console.warn("Calculated extent is invalid or empty. Cannot fit view. Extent:", extent);
     }
+  } else {
+      console.log("No point features found to fit view.");
+  }
+
+  // --- Add Render Complete Listener ---
+  map.once('rendercomplete', function() {
+    console.log("--- Map Render Complete ---");
+    try {
+      const mapLayers = map.getLayers().getArray();
+      console.log(`Map has ${mapLayers.length} layers.`);
+      if (mapLayers.length > 1) {
+        const potentialVectorLayer = mapLayers[1];
+        if (potentialVectorLayer instanceof VectorLayer) {
+          const source = potentialVectorLayer.getSource();
+          const layerFeatures = source.getFeatures();
+          console.log(`Vector layer found. Contains ${layerFeatures.length} features.`);
+          if (layerFeatures.length > 0) {
+            console.log("First feature geom in layer:", layerFeatures[0].getGeometry().getCoordinates());
+          }
+        } else {
+          console.warn("Second layer is not a Vector layer:", potentialVectorLayer);
+        }
+      } else {
+          console.warn("Vector layer not found or only base layer exists.");
+      }
+      console.log("Final Map View State:", JSON.stringify(map.getView().getProperties()));
+    } catch(e) {
+      console.error("Error during rendercomplete check:", e);
     }
+    console.log("--- End Render Complete ---");
+  });
   
   // Add popup for node info
   var container = document.createElement('div');
@@ -250,7 +539,7 @@
   var content = document.createElement('div');
   container.appendChild(content);
   
-  var overlay = new ol.Overlay({
+  var overlay = new Overlay({
     element: container,
     autoPan: true,
     autoPanAnimation: {
@@ -267,6 +556,7 @@
     if (feature && feature.get('node')) {
         var node = feature.get('node');
         var coordinates = feature.getGeometry().getCoordinates();
+        var showRelayInfo = evt.originalEvent && evt.originalEvent.shiftKey;
         
         var html = '<div class="p-2">';
         
@@ -287,18 +577,39 @@
             html += `<strong>Hops:</strong> ${node.hops}<br>`;
         }
         
+        // Add relay information for receivers only when Shift is held
+        if (node.relayNode && showRelayInfo) {
+            if (node.actualRelayNode) {
+                // Show relay node's long_name as a link
+                let relayId = node.actualRelayNode;
+                let relayName = nodes[relayId] ? nodes[relayId].long_name : relayId;
+                html += `<strong>Relay Node:</strong> <a href="node_${relayId}.html">${relayName}</a><br>`;
+            } else {
+                // Show only the last two hex digits
+                let relaySuffix = node.relayNode.slice(-2);
+                html += `<strong>Relay Suffix:</strong> ${relaySuffix} (unconfirmed)<br>`;
+            }
+        }
+        
         // Calculate distance using stored coordinates
         if (node.type === 'receiver') {
             var senderFeature = features[0];
-            if (senderFeature) {
+            if (senderFeature && senderFeature.get('node') && senderFeature.get('node').type === 'sender') {
             var senderNode = senderFeature.get('node');
             var distance = calculateDistance(
                 senderNode.lat, senderNode.lon,
                 node.lat, node.lon
             );
             html += `<strong>Distance from Sender:</strong> ${distance} km<br>`;
+            } else {
+            html += `<strong>Sender Location:</strong> Unknown<br>`;
             }
         }
+        }
+        
+        // Add position time information
+        if (node.positionTime) {
+            html += `<strong>Position Updated:</strong> ${formatTimestamp(node.positionTime)}<br>`;
         }
         
         html += '</div>';
@@ -309,6 +620,73 @@
         overlay.setPosition(undefined);
     }
     });
+
+  // --- Convex Hull Data from Backend ---
+  const convexHullArea = {{ convex_hull_area_km2 if convex_hull_area_km2 is not none else 'null' }};
+  const hullPoints = [];
+  {% if sender_position and sender_position.latitude is not none and sender_position.longitude is not none %}
+    hullPoints.push([{{ sender_position.longitude }}, {{ sender_position.latitude }}]);
+  {% endif %}
+  {% for pos in receiver_positions.values() %}
+    {% if pos and pos.latitude is not none and pos.longitude is not none %}
+      hullPoints.push([{{ pos.longitude }}, {{ pos.latitude }}]);
+    {% endif %}
+  {% endfor %}
+
+  let hullFeature = null;
+
+  function computeConvexHull(points) {
+    if (points.length < 3) return null;
+    // Andrew's monotone chain algorithm (2D convex hull)
+    points = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const lower = [];
+    for (let p of points) {
+      while (lower.length >= 2 && cross(lower[lower.length-2], lower[lower.length-1], p) <= 0) lower.pop();
+      lower.push(p);
+    }
+    const upper = [];
+    for (let i = points.length - 1; i >= 0; i--) {
+      let p = points[i];
+      while (upper.length >= 2 && cross(upper[upper.length-2], upper[upper.length-1], p) <= 0) upper.pop();
+      upper.push(p);
+    }
+    upper.pop(); lower.pop();
+    return lower.concat(upper);
+    function cross(o, a, b) {
+      return (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0]);
+    }
+  }
+
+  function drawConvexHull() {
+    if (hullFeature) {
+      hullLayer.getSource().removeFeature(hullFeature);
+      hullFeature = null;
+    }
+    if (hullPoints.length < 3) return;
+    const hull = computeConvexHull(hullPoints);
+    if (!hull) return;
+    // Convert to map projection
+    const coords = hull.map(([lon, lat]) => fromLonLat([lon, lat]));
+    coords.push(coords[0]); // close the polygon
+    hullFeature = new Feature({ geometry: new Polygon([coords]) });
+    hullFeature.setStyle(new Style({
+      stroke: new Stroke({ color: '#00AA88', width: 3 }),
+      fill: new Fill({ color: 'rgba(0,170,136,0.1)' })
+    }));
+    hullLayer.getSource().addFeature(hullFeature);
+  }
+
+  document.getElementById('showConvexHull').addEventListener('change', function(e) {
+    if (e.target.checked) {
+      drawConvexHull();
+    } else if (hullFeature) {
+      hullLayer.getSource().removeFeature(hullFeature);
+      hullFeature = null;
+    }
+  });
+  // Optionally, you can auto-check if you want to show by default
+  // document.getElementById('showConvexHull').checked = true;
+  // drawConvexHull();
 </script>
 
 <style>
@@ -316,17 +694,12 @@
     height: 70vh;
     width: 100%;
     }
-    #legend {
-    position: absolute;
-    bottom: 20px;
-    right: 20px;
-    z-index: 1000;
-    }
+    
     .ol-popup {
     position: absolute;
     background-color: white;
     box-shadow: 0 1px 4px rgba(0,0,0,0.2);
-    padding: 0;  // Removed padding as it's now in the content div
+    padding: 0;
     border-radius: 10px;
     border: 1px solid #cccccc;
     bottom: 12px;

@@ -1,13 +1,17 @@
-/* Original Style */
-
 body {
     font-family: monospace;
     font-size: 12px;
+    background-color: #ffffff !important;
 }
 
 th {
     background-color: #D7F9FF;
     text-align: center;
+}
+
+/* Override for left-aligned headers */
+th.text-start {
+    text-align: left !important;
 }
 
 nav {
@@ -19,7 +23,7 @@ nav {
     background-color: #f0f0f0;
 }
 
-/* Main table striping */
+/* Main table striping - consolidated rule for odd rows only */
 .table-striped>tbody>tr:nth-of-type(odd) {
     background-color: #f0f0f0 !important;
 }
@@ -57,6 +61,17 @@ nav {
 .badge.bg-message {
     background-color: #505050;
     /* Dark gray */
+    color: white;
+}
+
+/* Additional badge styles */
+.badge.bg-purple {
+    background-color: #6f42c1;
+    color: white;
+}
+
+.badge.bg-success {
+    background-color: #28a745;
     color: white;
 }
 
@@ -134,10 +149,11 @@ nav {
 }
 
 .message-bubble {
-    background: #f0f0f0;
+    background: #f8f9fa;
     border-radius: 12px;
     padding: 12px 16px;
     position: relative;
+    
 }
 
 .message-header {
@@ -211,11 +227,14 @@ nav {
     border-radius: 12px;
     padding: 4px 10px;
     font-size: 0.85em;
-    gap: 6px;
     text-decoration: none;
     color: inherit;
     transition: background-color 0.2s;
     margin: 2px;
+}
+
+.reception-badge .snr-indicator {
+    margin-right: 6px;
 }
 
 .reception-badge:hover {
@@ -301,6 +320,7 @@ nav {
     background: rgba(0, 0, 0, 0.05);
     border-radius: 4px;
     white-space: nowrap;
+    margin-left: 1em;
 }
 
 .btn-group .btn {
@@ -309,6 +329,24 @@ nav {
 
 .btn-group .btn i {
     font-size: 1rem;
+}
+
+.btn-mini {
+    font-size: 0.80em;
+    padding: 0.05rem 0.3rem;
+    line-height: 1.1;
+    color: #17a2b8 !important;
+    border-color: #17a2b8 !important;
+    background: transparent !important;
+    text-decoration: none !important;
+    transition: background 0.15s, color 0.15s;
+}
+
+.btn-mini:hover, .btn-mini:focus {
+    color: #fff !important;
+    background-color: #1396a5 !important;
+    border-color: #1396a5 !important;
+    text-decoration: none !important;
 }
 
 /* Mobile Reception Styles */
@@ -401,3 +439,517 @@ nav {
         display: block;
     }
 }
+
+/* Map Settings Panel Styles */
+#settings {
+    max-width: 350px;
+    font-size: 0.9em;
+    transition: all 0.3s ease;
+}
+
+#settings h5 {
+    font-size: 1.1em;
+    font-weight: 500;
+}
+
+#settings .form-label {
+    font-weight: 500;
+    font-size: 0.9em;
+    margin-bottom: 0.25rem;
+}
+
+#settings .form-select-sm,
+#settings .form-control-sm {
+    font-size: 0.85em;
+    padding: 0.25rem 0.5rem;
+}
+
+#settings .text-muted {
+    font-size: 0.8em;
+    opacity: 0.8;
+}
+
+#settings .mb-3:last-child {
+    margin-bottom: 0 !important;
+}
+
+/* Make settings panel collapsible on mobile */
+@media (max-width: 768px) {
+    #settings {
+        max-height: 60vh;
+        overflow-y: auto;
+        max-width: calc(100% - 40px);
+        margin: 20px;
+    }
+}
+
+/* Add smooth transitions for filter changes */
+.ol-layer {
+    transition: opacity 0.3s ease;
+}
+
+/* Improve visibility of map controls */
+.ol-control button {
+    background-color: rgba(255, 255, 255, 0.9) !important;
+    color: #333 !important;
+}
+
+.ol-control button:hover {
+    background-color: rgba(255, 255, 255, 1) !important;
+}
+
+/* Settings Toggle Button */
+.settings-toggle {
+    position: fixed;
+    top: 70px; /* Below navbar */
+    right: 20px;
+    z-index: 1001;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: white;
+    border: 1px solid #dee2e6;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.settings-toggle:hover {
+    background: #f8f9fa;
+    transform: rotate(30deg);
+}
+
+.settings-toggle i {
+    font-size: 1.2em;
+    color: #333;
+}
+
+/* Settings Panel */
+.settings-panel {
+    position: fixed;
+    top: 120px; /* Below settings toggle */
+    right: 20px;
+    z-index: 1000;
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    padding: 1rem;
+    max-width: 350px;
+    max-height: calc(100vh - 140px);
+    overflow-y: auto;
+    font-size: 0.9em;
+}
+
+/* Node Info Panel */
+.node-info-panel {
+    position: fixed;
+    top: 180px; /* Increased from 200px to move it down 70px */
+    right: 20px;
+    z-index: 999;
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    padding: 1rem;
+    max-width: 350px;
+    max-height: calc(100vh - 140px);
+    overflow-y: auto;
+}
+
+/* Make settings and node info panels responsive */
+@media (max-width: 768px) {
+    .settings-panel,
+    .node-info-panel {
+        max-width: calc(100% - 40px);
+        margin: 20px;
+    }
+
+    .settings-panel {
+        top: 70px;
+        max-height: calc(100vh - 90px);
+    }
+
+    .node-info-panel {
+        top: auto;
+        bottom: 20px;
+        max-height: 60vh;
+    }
+}
+
+/* Improve map controls visibility */
+.ol-control {
+    background: none;
+}
+
+.ol-control button {
+    background-color: white !important;
+    color: #333 !important;
+    border: 1px solid #dee2e6 !important;
+    border-radius: 4px !important;
+    margin: 2px !important;
+    transition: all 0.2s ease;
+}
+
+.ol-control button:hover {
+    background-color: #f8f9fa !important;
+    color: #000 !important;
+}
+
+/* Make OpenStreetMap attribution less prominent on all OpenLayers maps */
+.ol-attribution, .ol-attribution ul {
+    font-size: 0.75em !important;
+    opacity: 0.7;
+}
+
+/* --- THEME AND CUSTOM STYLES FROM layout.html.j2 --- */
+
+.navbar {
+  background-color: #9fdef9 !important;
+  color: #555 !important;
+}
+
+.navbar-brand {
+  color: #000 !important;
+}
+
+.navbar .navbar-brand:hover, .navbar .navbar-brand:focus {
+  color: #555 !important;
+  text-decoration: none !important;
+}
+
+.navbar .nav-link, .navbar .dropdown-item {
+  color: #555 !important;
+  text-decoration: none !important;
+}
+.navbar .nav-link.active, .navbar .active > .nav-link, .navbar .nav-link:active {
+  color: #000 !important;
+  text-decoration: none !important;
+}
+.navbar .nav-link:hover, .navbar .nav-link:focus, .navbar .dropdown-item:hover, .navbar .dropdown-item:focus {
+  color: #000 !important;
+  text-decoration: none !important;
+}
+
+a {
+  color: #007bff !important;
+}
+a:hover, a:focus {
+  color: #0056b3 !important;
+  text-decoration: underline;
+}
+
+.btn, .form-control, .page-link {
+  border-color: #17a2b8 !important;
+  color: #fff !important;
+}
+.btn-primary, .btn-accent, .btn-info {
+  background-color: #17a2b8 !important;
+  border-color: #17a2b8 !important;
+  color: #fff !important;
+}
+.btn-primary:hover, .btn-accent:hover, .btn-info:hover,
+.btn-primary:focus, .btn-accent:focus, .btn-info:focus,
+.btn-primary:active, .btn-accent:active, .btn-info:active {
+  background-color: #1396a5 !important;
+  border-color: #1396a5 !important;
+  color: #fff !important;
+  filter: brightness(0.95);
+}
+.btn-outline-primary {
+  color: #17a2b8 !important;
+  border-color: #17a2b8 !important;
+  background-color: #fff !important;
+}
+.btn-outline-primary:hover,
+.btn-outline-primary:focus,
+.btn-outline-primary:active,
+.btn-outline-primary.active {
+  color: #fff !important;
+  background-color: #1396a5 !important;
+  border-color: #1396a5 !important;
+}
+
+/* Prevent global link color from affecting only reception badge links in chat */
+.reception-badge,
+.mobile-node-name a {
+  color: #000 !important;
+}
+
+/* Table theming */
+.table thead th {
+  background-color: #D7F9FF !important;
+}
+.table {
+  border-color: #dee2e6 !important;
+}
+.table td, .table th {
+  border-color: #dee2e6 !important;
+}
+
+/* Pagination link and icon theming */
+.page-link, .btn-outline-secondary {
+  color: #17a2b8 !important;
+  border-color: #17a2b8 !important;
+  background-color: #fff !important;
+}
+.page-link:hover, .page-link:focus, .btn-outline-secondary:hover, .btn-outline-secondary:focus {
+  color: #fff !important;
+  background-color: #1396a5 !important;
+  border-color: #1396a5 !important;
+}
+.page-link .bi, .btn-outline-secondary .bi {
+  color: inherit !important;
+}
+.page-link:disabled, .btn-outline-secondary:disabled {
+  color: #ccc !important;
+  background-color: #f8f9fa !important;
+  border-color: #dee2e6 !important;
+}
+
+/* --- END MIGRATED STYLES --- */
+
+.newest-node-welcome, .banner {
+  background: #F9F9D7 !important;
+}
+
+/* Themed Bootstrap Popover Styles */
+.popover {
+    background-color: #ffffff !important;
+    border: 1px solid #dee2e6 !important;
+    color: #555 !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+    border-radius: 12px !important;
+    overflow: hidden !important;
+    font-family: inherit;
+    font-size: 0.98em;
+    z-index: 1060;
+}
+.popover-header {
+    background-color: #D7F9FF !important;
+    color: #555 !important;
+    border-bottom: 1px solid #dee2e6 !important;
+    font-weight: 600;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+}
+.popover-body {
+    background-color: #ffffff !important;
+    color: #555 !important;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+.receiver-popover {
+    font-size: 0.98em;
+    line-height: 1.5;
+    color: #555 !important;
+    font-family: inherit;
+}
+
+.badge.bg-secondary {
+    background-color: #e0e0e0 !important; /* Light gray for high contrast */
+    color: #222 !important;              /* Dark text for readability */
+    border: 1px solid #dee2e6 !important;
+    font-weight: 600;
+}
+
+/* Environmental Telemetry Dropdown Theming */
+#environmentalDropdown {
+    border: 2px solid #17a2b8 !important;
+    border-radius: 0.375rem !important;
+    color: #17a2b8 !important;
+    font-family: monospace, monospace;
+    font-weight: 600;
+    background: #fff !important;
+    height: 2.25rem !important;
+    min-width: 120px;
+    margin-left: 1rem;
+    margin-top: 0.15rem;
+    margin-bottom: 0.15rem;
+    display: inline-block;
+    vertical-align: middle;
+    box-shadow: none;
+    transition: border-color 0.2s;
+}
+#environmentalDropdown:focus, #environmentalDropdown:hover {
+    border-color: #1396a5 !important;
+    outline: none !important;
+    box-shadow: 0 0 0 0.1rem rgba(0,123,255,.15);
+}
+@media (max-width: 767.98px) {
+    #environmentalDropdown {
+        margin-left: 0.5rem;
+        margin-top: 0.5rem;
+        margin-bottom: 0.5rem;
+        width: 100%;
+        min-width: 0;
+    }
+}
+
+/* Node Filter Input Theming */
+#nodeFilter,
+#senderFilter,
+#messageTypeFilter,
+#channelFilter {
+    background-color: #fff !important;
+    color: #333 !important;
+    border: 1px solid #17a2b8 !important;
+    border-radius: 0.375rem !important;
+    font-family: monospace, monospace;
+    transition: border-color 0.2s ease;
+}
+#nodeFilter:focus,
+#senderFilter:focus,
+#messageTypeFilter:focus,
+#channelFilter:focus {
+    border-color: #1396a5 !important;
+    outline: none !important;
+    box-shadow: 0 0 0 0.1rem rgba(0,123,255,.15);
+    background-color: #fff !important;
+    color: #333 !important;
+}
+#nodeFilter::placeholder,
+#senderFilter::placeholder {
+    color: #6c757d !important;
+    opacity: 1;
+}
+
+/* Logs Page Filter Controls Theming */
+#senderFilter,
+#messageTypeFilter,
+#channelFilter {
+    background-color: #fff !important;
+    color: #333 !important;
+    border: 1px solid #17a2b8 !important;
+    border-radius: 0.375rem !important;
+    font-family: monospace, monospace;
+    font-size: 12px;
+    transition: border-color 0.2s ease;
+}
+#senderFilter:focus,
+#messageTypeFilter:focus,
+#channelFilter:focus {
+    border-color: #1396a5 !important;
+    outline: none !important;
+    box-shadow: 0 0 0 0.1rem rgba(0,123,255,.15);
+    background-color: #fff !important;
+    color: #333 !important;
+}
+#senderFilter::placeholder {
+    color: #6c757d !important;
+    opacity: 1;
+}
+
+/* Utilization Map Settings Panel Controls Theming */
+#settings #timeRange,
+#settings #channelFilter {
+    background-color: #fff !important;
+    color: #333 !important;
+    border: 1px solid #17a2b8 !important;
+    border-radius: 0.375rem !important;
+    font-family: monospace, monospace;
+    transition: border-color 0.2s ease;
+}
+
+#settings #timeRange:focus,
+#settings #channelFilter:focus {
+    border-color: #1396a5 !important;
+    outline: none !important;
+    box-shadow: 0 0 0 0.1rem rgba(0,123,255,.15);
+    background-color: #fff !important;
+    color: #333 !important;
+}
+
+/* Checkbox styling for utilization map settings */
+#settings #useContactRange,
+#settings #showHexBorders,
+#settings #autoScaleRadius,
+#settings #useContactDistance {
+    accent-color: #17a2b8 !important;
+}
+
+#settings #useContactRange:checked,
+#settings #showHexBorders:checked,
+#settings #autoScaleRadius:checked,
+#settings #useContactDistance:checked {
+    background-color: #17a2b8 !important;
+    border-color: #17a2b8 !important;
+}
+
+/* Range slider styling for utilization map settings - use browser defaults */
+#settings #hexSize,
+#settings #heatmapRadius,
+#settings #heatmapBlur,
+#settings #heatmapOpacity {
+    accent-color: #17a2b8 !important;
+}
+
+/* Ensure gap between time range and telemetry selector at desktop widths */
+@media (min-width: 768px) {
+  #environmentalTelemetryContainer .btn-group + #environmentalTabs {
+    margin-left: 2rem !important;
+  }
+}
+
+/* Details table header styling */
+.details-label {
+  font-weight: 600;
+  text-align: left;
+  color: #222;
+  vertical-align: middle;
+}
+
+/* Ensure details-table stripes both th and td in odd rows */
+.details-table > tbody > tr:nth-of-type(odd) > th,
+.details-table > tbody > tr:nth-of-type(odd) > td {
+    background-color: #f0f0f0 !important;
+} 
+
+/* Ensure details-table stripes both th and td in even rows */
+.details-table > tbody > tr:nth-of-type(even) > th,
+.details-table > tbody > tr:nth-of-type(even) > td {
+    background-color: #ffffff !important;
+} 
+
+/* Collapse border between section and column headers in heard tables */
+.heard-table thead tr:first-child th {
+    border-bottom: none !important;
+}
+.heard-table thead tr:nth-child(2) th {
+    border-top: none !important;
+}
+
+/* Collapse border between section and column headers in node-table */
+.node-table thead tr:first-child th {
+    border-bottom: none !important;
+}
+.node-table thead tr:nth-child(2) th {
+    border-top: none !important;
+} 
+
+.btn-link.btn-mini {
+  color: #17a2b8 !important;
+  background: transparent !important;
+  border-color: #17a2b8 !important;
+  text-decoration: none !important;
+  padding: 0.18rem 0.4rem;
+}
+.btn-link.btn-mini:hover, .btn-link.btn-mini:focus {
+  color: #fff !important;
+  background-color: #1396a5 !important;
+  border-color: #1396a5 !important;
+  text-decoration: none !important;
+} 
+
+/* Message Map prominent message box */
+.message-map-box {
+  background: #f8f9fa;
+  border-left: 3px solid #17a2b8;
+  border-radius: 4px;
+  padding: 0.5rem 1rem;
+  margin: 0.5rem 0;
+  font-size: 1.05rem;
+  font-weight: 500;
+  word-break: break-word;
+} 

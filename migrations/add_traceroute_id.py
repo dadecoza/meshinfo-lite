@@ -1,6 +1,18 @@
-def migrate(db):
-    cursor = db.cursor()
+import logging
+
+def clear_unread_results(cursor):
+    """Clear any unread results from the cursor"""
     try:
+        while cursor.nextset():
+            pass
+    except:
+        pass
+
+def migrate(db):
+    cursor = None
+    try:
+        cursor = db.cursor()
+        clear_unread_results(cursor)
         # Start transaction
         cursor.execute("START TRANSACTION")
         
@@ -24,6 +36,7 @@ def migrate(db):
             WHERE TABLE_NAME = 'traceroute'
         """)
         existing_columns = [row[0] for row in cursor.fetchall()]
+        logging.info(f"Existing columns in traceroute: {existing_columns}")
         
         # Build ALTER TABLE statement
         alter_statements = []
@@ -34,41 +47,30 @@ def migrate(db):
             existing_columns.remove('snr')
             existing_columns.append('snr_towards')
         
-        # Add missing columns
+        # Add missing columns (always add at the end for robustness)
         for col, type_def in needed_columns.items():
             if col not in existing_columns:
-                if col == 'traceroute_id':
-                    alter_statements.append(f"ADD COLUMN {col} {type_def} FIRST")
-                elif col == 'request_id':
-                    alter_statements.append(f"ADD COLUMN {col} {type_def} AFTER traceroute_id")
-                elif col == 'channel':
-                    alter_statements.append(f"ADD COLUMN {col} {type_def} AFTER to_id")
-                elif col == 'hop_limit':
-                    alter_statements.append(f"ADD COLUMN {col} {type_def} AFTER channel")
-                elif col == 'success':
-                    alter_statements.append(f"ADD COLUMN {col} {type_def} AFTER hop_limit")
-                elif col == 'time':
-                    alter_statements.append(f"ADD COLUMN {col} {type_def} AFTER success")
-                elif col == 'snr_back':
-                    alter_statements.append(f"ADD COLUMN {col} {type_def} AFTER snr_towards")
-                elif col == 'route_back':
-                    alter_statements.append(f"ADD COLUMN {col} {type_def} AFTER route")
-                else:
-                    alter_statements.append(f"ADD COLUMN {col} {type_def}")
+                alter_statements.append(f"ADD COLUMN {col} {type_def}")
         
         # Execute ALTER TABLE if there are changes needed
         if alter_statements:
             alter_sql = "ALTER TABLE traceroute " + ", ".join(alter_statements)
-            print(f"Executing: {alter_sql}")
+            logging.info(f"Executing ALTER TABLE: {alter_sql}")
             cursor.execute(alter_sql)
+        else:
+            logging.info("No ALTER TABLE needed for traceroute.")
         
         # Commit transaction
         db.commit()
-        print("Migration completed successfully")
+        logging.info("Migration completed successfully")
         
     except Exception as e:
-        print(f"Migration error: {str(e)}")
+        logging.error(f"Error during traceroute id migration: {e}")
         db.rollback()
         raise
     finally:
-        cursor.close()
+        if cursor:
+            try:
+                cursor.close()
+            except:
+                pass

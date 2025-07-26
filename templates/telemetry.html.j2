@@ -3,14 +3,25 @@
 
 {% block title %}Telemetry | MeshInfo{% endblock %}
 
+{% block og_title %}Telemetry | {{ config['mesh']['name'] }}{% endblock %}
+{% block og_description %}View real-time sensor data and device metrics from nodes in the {{ config['mesh']['short_name'] }} mesh network: battery, environment, and more.{% endblock %}
+{% block twitter_title %}Telemetry | {{ config['mesh']['name'] }}{% endblock %}
+{% block twitter_description %}View real-time sensor data and device metrics from nodes in the {{ config['mesh']['short_name'] }} mesh network: battery, environment, and more.{% endblock %}
+
 {% block content %}
 <div class="container pt-3">
-  <h5>{{ this_page.title() }}</h5>
+  <div class="d-flex align-items-center mb-3">
+    <h5 class="mb-0 me-2">📊 {{ this_page.title() }}</h5>
+  </div>
+  <div class="text-muted mb-3">
+    <small>Real-time sensor data and device metrics from mesh nodes. Shows battery levels, environmental readings, and network utilization.</small>
+  </div>
   <table class="table table-striped table-bordered table-sm">
     <thead>
       <tr>
         <th scope="col">Timestamp</th>
         <th scope="col">Node</th>
+        <th scope="col">Ch</th>
         <th scope="col">
           <img src="images/icons/up.svg" alt="Air Util TX" title="Air Util TX" style="height:18px">
         </th>
@@ -56,6 +67,14 @@
           <a href="node_{{ inodeid }}.html">{{ inode.short_name }}</a>
           {% else %}
           <span>UNK</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if item.channel is not none %}
+          <span style="background-color: {{ utils.get_channel_color(item.channel) }}; color: white; padding: 2px 6px; border-radius: 4px;" 
+                title="Channel {{ item.channel }} ({{ utils.get_channel_name(item.channel) }})">
+            {{ utils.get_channel_name(item.channel, use_short_names=True) }}
+          </span>
           {% endif %}
         </td>
         <td>

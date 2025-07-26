@@ -1,0 +1,18 @@
+{
+  "dependencies": {
+    "color-parse": "^2.0.2",
+    "color-rgba": "^3.0.0",
+    "color-space": "^2.3.2",
+    "earcut": "^3.0.1",
+    "ol": "^10.5.0",
+    "ol-ext": "^4.0.0",
+    "quickselect": "^3.0.0",
+    "rbush": "^3.0.1"
+  },
+  "devDependencies": {
+    "copyfiles": "^2.4.1"
+  },
+  "scripts": {
+    "copy-vendor": "copyfiles -u 2 \"node_modules/ol/**/*.js\" \"node_modules/ol/ol.css\" www/js/vendor/ol/ && cp node_modules/rbush/index.js www/js/vendor/rbush.js && cp node_modules/quickselect/index.js www/js/vendor/quickselect.js && cp node_modules/earcut/dist/earcut.min.js www/js/vendor/earcut.js && copyfiles -u 2 \"node_modules/color-space/**/*.js\" www/js/vendor/color-space/ && cp node_modules/color-rgba/index.js www/js/vendor/color-rgba.js && cp node_modules/color-parse/index.js www/js/vendor/color-parse.js && copyfiles -u 2 \"node_modules/ol-ext/**/*.js\" \"node_modules/ol-ext/ol-ext.css\" www/js/vendor/ol-ext/"
+  }
+}

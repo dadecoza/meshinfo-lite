@@ -3,9 +3,67 @@
 
 {% block title %}Traceroutes | MeshInfo{% endblock %}
 
+{% block og_title %}Traceroutes | {{ config['mesh']['name'] }}{% endblock %}
+{% block og_description %}Discover network paths and analyze routing between nodes in the {{ config['mesh']['short_name'] }} mesh network. See hop-by-hop routes and signal quality.{% endblock %}
+{% block og_image_width %}1200{% endblock %}
+{% block og_image_height %}630{% endblock %}
+{% block twitter_title %}Traceroutes | {{ config['mesh']['name'] }}{% endblock %}
+{% block twitter_description %}Discover network paths and analyze routing between nodes in the {{ config['mesh']['short_name'] }} mesh network. See hop-by-hop routes and signal quality.{% endblock %}
+{% block twitter_image_width %}1200{% endblock %}
+{% block twitter_image_height %}630{% endblock %}
+
+{% block head %}
+  {{ super() }}
+  <script>
+// Function to initialize popovers
+function initializePopovers() {
+    if (typeof jQuery !== 'undefined') {
+        // Only initialize popovers on desktop
+        if (window.innerWidth > 768) {
+            $('[data-toggle="popover"]').popover({
+                html: true,
+                trigger: 'hover',
+                placement: 'bottom',
+                container: 'body',
+                delay: { show: 50, hide: 100 }
+            });
+        } else {
+            // Destroy any existing popovers on mobile
+            $('[data-toggle="popover"]').popover('dispose');
+        }
+    }
+}
+
+// Initialize on DOM content loaded
+document.addEventListener('DOMContentLoaded', initializePopovers);
+
+// Re-initialize on window resize
+let resizeTimer;
+window.addEventListener('resize', function() {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function() {
+        $('[data-toggle="popover"]').popover('dispose');
+        initializePopovers();
+    }, 250);
+});
+
+// Backup initialization if jQuery loads late
+window.addEventListener('load', function() {
+    if (typeof jQuery !== 'undefined' && !$('[data-toggle="popover"]').data('bs.popover')) {
+        initializePopovers();
+    }
+});
+</script>
+{% endblock %}
+
 {% block content %}
 <div class="container pt-3">
-  <h5>{{ this_page.title() }}</h5>
+  <div class="d-flex align-items-center mb-3">
+    <h5 class="mb-0 me-2">🛣️ {{ this_page.title() }}</h5>
+  </div>
+  <div class="text-muted mb-3">
+    <small>Network path discovery and routing analysis between mesh nodes. Shows hop-by-hop routes, signal quality, and network connectivity.</small>
+  </div>
   
   <table class="table table-striped table-bordered table-sm">
   <thead>
@@ -15,18 +73,47 @@
       <th scope="col">To</th>
       <th scope="col">Route</th>
       <th scope="col">Hops</th>
-      {# <th scope="col">Success</th> #}
+      <th scope="col">Ch</th>
+      <th scope="col">Status</th>
+      <th scope="col">Attempts</th>
       <th scope="col">Actions</th>
     </tr>
   </thead>
   <tbody>
     {% for item in traceroutes %}
-      <tr>
-        <td>{{ format_timestamp(item.ts_created) }}</td>
+      {% set successful_attempts = item.attempts | selectattr('success') | list %}
+      {% set best_attempt = (successful_attempts | selectattr('route_back', '!=', []) | list | first) or (successful_attempts | first) or item.attempts[0] %}
+      {% set is_zero_hop = (best_attempt.route|length == 0 and best_attempt.snr_towards|length > 0) %}
+      {% set any_success = item.attempts | selectattr('success') | list | length > 0 %}
+      {% set best_successful_reply = (item.attempts | selectattr('is_reply') | selectattr('success') | list | first) %}
+      <tr class="summary-row" style="cursor:pointer;">
+        <td>
+          {{ format_timestamp(item.ts_created) }}
+          {% if item.first_attempt and item.last_attempt and item.first_attempt != item.last_attempt %}
+            <br>
+            <small class="text-muted">
+              First: {{ format_timestamp(item.first_attempt) }}<br>
+              Last: {{ format_timestamp(item.last_attempt) }}
+            </small>
+          {% endif %}
+        </td>
         <td>
           {% set fnodeid = utils.convert_node_id_from_int_to_hex(item["from_id"]) %}
           {% if fnodeid in nodes %}
-            <a href="node_{{ fnodeid }}.html">{{ nodes[fnodeid].short_name }}</a>
+            <a href="/node_{{ fnodeid }}.html"
+               class="reception-badge {% if best_attempt.snr_towards and best_attempt.snr_towards[0] > 0 %}snr-good{% elif best_attempt.snr_towards and best_attempt.snr_towards[0] > -5 %}snr-adequate{% elif best_attempt.snr_towards and best_attempt.snr_towards[0] > -10 %}snr-poor{% else %}snr-very-poor{% endif %}"
+               data-toggle="popover"
+               data-content="<div class='receiver-popover'>
+                   <strong>{{ nodes[fnodeid].long_name|replace('"', '&quot;') }}</strong><br>
+                   {% if best_attempt.snr_towards %}SNR: {{ '%.1f'|format(best_attempt.snr_towards[0]) }}dB<br>{% endif %}
+                   {% if nodes[fnodeid].hw_model %}HW: {{ nodes[fnodeid].hw_model|safe_hw_model }}<br>{% endif %}
+                   {% if nodes[fnodeid].firmware_version %}FW: {{ nodes[fnodeid].firmware_version }}<br>{% endif %}
+                   {% if nodes[fnodeid].role is not none %}Role: {{ utils.get_role_name(nodes[fnodeid].role) }}<br>{% endif %}
+                   {% if nodes[fnodeid].owner_username %}Owner: {{ nodes[fnodeid].owner_username }}<br>{% endif %}
+                   Last Seen: {{ time_ago(nodes[fnodeid].ts_seen) }}
+               </div>">
+               {{ nodes[fnodeid].short_name }}
+            </a>
           {% else %}
             <span>UNK</span>
           {% endif %}
@@ -34,142 +121,305 @@
         <td>
           {% set tnodeid = utils.convert_node_id_from_int_to_hex(item["to_id"]) %}
           {% if tnodeid in nodes %}
-            <a href="node_{{ tnodeid }}.html">{{ nodes[tnodeid].short_name }}</a>
+            <a href="/node_{{ tnodeid }}.html"
+               class="reception-badge"
+               data-toggle="popover"
+               data-content="<div class='receiver-popover'>
+                   <strong>{{ nodes[tnodeid].long_name|replace('"', '&quot;') }}</strong><br>
+                   {% if nodes[tnodeid].hw_model %}HW: {{ nodes[tnodeid].hw_model|safe_hw_model }}<br>{% endif %}
+                   {% if nodes[tnodeid].firmware_version %}FW: {{ nodes[tnodeid].firmware_version }}<br>{% endif %}
+                   {% if nodes[tnodeid].role is not none %}Role: {{ utils.get_role_name(nodes[tnodeid].role) }}<br>{% endif %}
+                   {% if nodes[tnodeid].owner_username %}Owner: {{ nodes[tnodeid].owner_username }}<br>{% endif %}
+                   Last Seen: {{ time_ago(nodes[tnodeid].ts_seen) }}
+               </div>">
+               {{ nodes[tnodeid].short_name }}
+            </a>
           {% else %}
             <span>UNK</span>
           {% endif %}
         </td>
         <td>
-          {# Forward Route #}
+          {# Outbound and Inbound Route for best successful reply, else fallback to best_attempt #}
           <div class="d-flex align-items-center flex-wrap mb-1">
-            <span class="text-muted me-2" style="min-width: 70px;">Outbound:</span>
             <div class="d-flex align-items-center flex-wrap">
-              {# Source node #}
-              <div class="d-inline-flex align-items-center me-2">
-                {% if fnodeid in nodes %}
-                  <a href="node_{{ fnodeid }}.html" class="text-decoration-none fw-bold">
-                    {{ nodes[fnodeid].short_name }}
-                  </a>
-                  {% if item.route|length == 0 and item.snr_towards %}
-                    {{ snr_badge(item.snr_towards[0]) }}
-                  {% endif %}
-                {% else %}
-                  <span class="fw-bold">UNK</span>
-                {% endif %}
-              </div>
-
-              {# Forward hops #}
-              {% for hop in item.route %}
-                <span class="mx-1">⇢</span>
-                <div class="d-inline-flex align-items-center me-2">
-                  {% set hnodeid = utils.convert_node_id_from_int_to_hex(hop) %}
-                  {% set hnode = nodes[hnodeid] if hnodeid in nodes else None %}
-                  {% if hnode %}
-                    <a href="node_{{ hnodeid }}.html" class="text-decoration-none">
-                      {{ hnode.short_name }}
+              {% set show_attempt = best_successful_reply or best_attempt %}
+              {% set srcid = utils.convert_node_id_from_int_to_hex(show_attempt.from_id) %}
+              {% set dstid = utils.convert_node_id_from_int_to_hex(show_attempt.to_id) %}
+              {# Outbound: Source → hops → Destination (if successful) #}
+              <div class="d-flex align-items-center flex-wrap mb-1">
+                <span class="text-muted me-2" style="min-width: 70px;">Outbound:</span>
+                <div class="d-flex align-items-center flex-wrap">
+                  {% if srcid in nodes %}
+                    <a href="/node_{{ srcid }}.html"
+                       class="reception-badge {% if show_attempt.snr_towards and show_attempt.snr_towards[0] > 0 %}snr-good{% elif show_attempt.snr_towards and show_attempt.snr_towards[0] > -5 %}snr-adequate{% elif show_attempt.snr_towards and show_attempt.snr_towards[0] > -10 %}snr-poor{% else %}snr-very-poor{% endif %}"
+                       data-toggle="popover"
+                       data-content="<div class='receiver-popover'>
+                           <strong>{{ nodes[srcid].long_name|replace('"', '&quot;') }}</strong><br>
+                           {% if show_attempt.snr_towards %}SNR: {{ '%.1f'|format(show_attempt.snr_towards[0]) }}dB<br>{% endif %}
+                           {% if nodes[srcid].hw_model %}HW: {{ nodes[srcid].hw_model|safe_hw_model }}<br>{% endif %}
+                           {% if nodes[srcid].firmware_version %}FW: {{ nodes[srcid].firmware_version }}<br>{% endif %}
+                           {% if nodes[srcid].role is not none %}Role: {{ utils.get_role_name(nodes[srcid].role) }}<br>{% endif %}
+                           {% if nodes[srcid].owner_username %}Owner: {{ nodes[srcid].owner_username }}<br>{% endif %}
+                           Last Seen: {{ time_ago(nodes[srcid].ts_seen) }}
+                       </div>">
+                       {{ nodes[srcid].short_name }}
                     </a>
-                  {% else %}
-                    <span>UNK</span>
-                  {% endif %}
-                  {% if item.snr_towards and loop.index0 < item.snr_towards|length %}
-                    {{ snr_badge(item.snr_towards[loop.index0]) }}
+                  {% else %}UNK{% endif %}
+                  {% for hop in show_attempt.route %}
+                    &rarr;
+                    {% set hopid = utils.convert_node_id_from_int_to_hex(hop) %}
+                    {% if hopid in nodes %}
+                      <a href="/node_{{ hopid }}.html"
+                         class="reception-badge {% if show_attempt.snr_towards and loop.index < show_attempt.snr_towards|length %}{% if show_attempt.snr_towards[loop.index] > 0 %}snr-good{% elif show_attempt.snr_towards[loop.index] > -5 %}snr-adequate{% elif show_attempt.snr_towards[loop.index] > -10 %}snr-poor{% else %}snr-very-poor{% endif %}{% endif %}"
+                         data-toggle="popover"
+                         data-content="<div class='receiver-popover'>
+                             <strong>{{ nodes[hopid].long_name|replace('"', '&quot;') }}</strong><br>
+                             {% if show_attempt.snr_towards and loop.index < show_attempt.snr_towards|length %}SNR: {{ '%.1f'|format(show_attempt.snr_towards[loop.index]) }}dB<br>{% endif %}
+                             {% if nodes[hopid].hw_model %}HW: {{ nodes[hopid].hw_model|safe_hw_model }}<br>{% endif %}
+                             {% if nodes[hopid].firmware_version %}FW: {{ nodes[hopid].firmware_version }}<br>{% endif %}
+                             {% if nodes[hopid].role is not none %}Role: {{ utils.get_role_name(nodes[hopid].role) }}<br>{% endif %}
+                             {% if nodes[hopid].owner_username %}Owner: {{ nodes[hopid].owner_username }}<br>{% endif %}
+                             Last Seen: {{ time_ago(nodes[hopid].ts_seen) }}
+                         </div>">
+                         {% if show_attempt.snr_towards and loop.index < show_attempt.snr_towards|length %}<span class="snr-indicator"></span>{% endif %}
+                         {{ nodes[hopid].short_name }}
+                      </a>
+                    {% else %}<span class="reception-badge">UNK</span>{% endif %}
+                  {% endfor %}
+                  {# Only show destination if successful #}
+                  {% if show_attempt.success and dstid in nodes %}
+                    &rarr;
+                    <a href="/node_{{ dstid }}.html"
+                       class="reception-badge"
+                       data-toggle="popover"
+                       data-content="<div class='receiver-popover'>
+                           <strong>{{ nodes[dstid].long_name|replace('"', '&quot;') }}</strong><br>
+                           {% if nodes[dstid].hw_model %}HW: {{ nodes[dstid].hw_model|safe_hw_model }}<br>{% endif %}
+                           {% if nodes[dstid].firmware_version %}FW: {{ nodes[dstid].firmware_version }}<br>{% endif %}
+                           {% if nodes[dstid].role is not none %}Role: {{ utils.get_role_name(nodes[dstid].role) }}<br>{% endif %}
+                           {% if nodes[dstid].owner_username %}Owner: {{ nodes[dstid].owner_username }}<br>{% endif %}
+                           Last Seen: {{ time_ago(nodes[dstid].ts_seen) }}
+                       </div>">
+                       {{ nodes[dstid].short_name }}
+                    </a>
                   {% endif %}
                 </div>
-              {% endfor %}
-              {% if item.route_back %}
-                {# Destination node for forward path #}
-                <span class="mx-1">⇢</span>
-                <div class="d-inline-flex align-items-center">
-                  {% if tnodeid in nodes %}
-                    <a href="node_{{ tnodeid }}.html" class="text-decoration-none fw-bold">
-                      {{ nodes[tnodeid].short_name }}
-                    </a>
-                  {% else %}
-                    <span class="fw-bold">UNK</span>
-                  {% endif %}
-                {% endif %}
               </div>
+              {# Return Route: Only if successful and route_back is non-empty #}
+              {% if show_attempt.success and show_attempt.route_back|length > 0 %}
+                <div><span class="text-muted" style="min-width: 70px;">Return:</span>
+                {% if dstid in nodes %}
+                  <a href="/node_{{ dstid }}.html"
+                     class="reception-badge"
+                     data-toggle="popover"
+                     data-content="<div class='receiver-popover'>
+                         <strong>{{ nodes[dstid].long_name|replace('"', '&quot;') }}</strong><br>
+                         {% if nodes[dstid].hw_model %}HW: {{ nodes[dstid].hw_model|safe_hw_model }}<br>{% endif %}
+                         {% if nodes[dstid].firmware_version %}FW: {{ nodes[dstid].firmware_version }}<br>{% endif %}
+                         {% if nodes[dstid].role is not none %}Role: {{ utils.get_role_name(nodes[dstid].role) }}<br>{% endif %}
+                         {% if nodes[dstid].owner_username %}Owner: {{ nodes[dstid].owner_username }}<br>{% endif %}
+                         Last Seen: {{ time_ago(nodes[dstid].ts_seen) }}
+                     </div>">
+                     {{ nodes[dstid].short_name }}
+                  </a>
+                {% else %}UNK{% endif %}
+                {% for hop in show_attempt.route_back %}
+                  &rarr;
+                  {% set hopid = utils.convert_node_id_from_int_to_hex(hop) %}
+                  {% if hopid in nodes %}
+                    <a href="/node_{{ hopid }}.html"
+                       class="reception-badge"
+                       data-toggle="popover"
+                       data-content="<div class='receiver-popover'>
+                           <strong>{{ nodes[hopid].long_name|replace('"', '&quot;') }}</strong><br>
+                           {% if nodes[hopid].hw_model %}HW: {{ nodes[hopid].hw_model|safe_hw_model }}<br>{% endif %}
+                           {% if nodes[hopid].firmware_version %}FW: {{ nodes[hopid].firmware_version }}<br>{% endif %}
+                           {% if nodes[hopid].role is not none %}Role: {{ utils.get_role_name(nodes[hopid].role) }}<br>{% endif %}
+                           {% if nodes[hopid].owner_username %}Owner: {{ nodes[hopid].owner_username }}<br>{% endif %}
+                           Last Seen: {{ time_ago(nodes[hopid].ts_seen) }}
+                       </div>">
+                       {{ nodes[hopid].short_name }}
+                    </a>
+                  {% else %}<span class="reception-badge">UNK</span>{% endif %}
+                {% endfor %}
+                &rarr;
+                {% if srcid in nodes %}
+                  <a href="/node_{{ srcid }}.html"
+                     class="reception-badge"
+                     data-toggle="popover"
+                     data-content="<div class='receiver-popover'>
+                         <strong>{{ nodes[srcid].long_name|replace('"', '&quot;') }}</strong><br>
+                         {% if nodes[srcid].hw_model %}HW: {{ nodes[srcid].hw_model|safe_hw_model }}<br>{% endif %}
+                         {% if nodes[srcid].firmware_version %}FW: {{ nodes[srcid].firmware_version }}<br>{% endif %}
+                         {% if nodes[srcid].role is not none %}Role: {{ utils.get_role_name(nodes[srcid].role) }}<br>{% endif %}
+                         {% if nodes[srcid].owner_username %}Owner: {{ nodes[srcid].owner_username }}<br>{% endif %}
+                         Last Seen: {{ time_ago(nodes[srcid].ts_seen) }}
+                     </div>">
+                     {{ nodes[srcid].short_name }}
+                  </a>
+                {% else %}UNK{% endif %}
+                </div>
+              {% endif %}
             </div>
           </div>
-
-          {# Return Route - only show if exists #}
-          {% if item.route_back %}
-            <div class="d-flex align-items-center flex-wrap">
-              <span class="text-muted me-2" style="min-width: 70px;">Return:</span>
-              <div class="d-flex align-items-center flex-wrap">
-                {# Return source (destination node) #}
-                <div class="d-inline-flex align-items-center me-2">
-                  {% if tnodeid in nodes %}
-                    <a href="node_{{ tnodeid }}.html" class="text-decoration-none fw-bold">
-                      {{ nodes[tnodeid].short_name }}
-                    </a>
-                    {% if item.route_back|length == 0 and item.snr_back %}
-                      {{ snr_badge(item.snr_back[0]) }}
-                    {% endif %}
-                  {% else %}
-                    <span class="fw-bold">UNK</span>
-                  {% endif %}
-                </div>
-
-                {# Return hops #}
-                {% for hop in item.route_back %}
-                  <span class="mx-1">⇢</span>
-                  <div class="d-inline-flex align-items-center me-2">
-                    {% set hnodeid = utils.convert_node_id_from_int_to_hex(hop) %}
-                    {% set hnode = nodes[hnodeid] if hnodeid in nodes else None %}
-                    {% if hnode %}
-                      <a href="node_{{ hnodeid }}.html" class="text-decoration-none">
-                        {{ hnode.short_name }}
-                      </a>
-                    {% else %}
-                      <span>UNK</span>
-                    {% endif %}
-                    {% if item.snr_back and loop.index0 < item.snr_back|length %}
-                      {{ snr_badge(item.snr_back[loop.index0]) }}
-                    {% endif %}
-                  </div>
-                {% endfor %}
-
-                {# Return destination (source node) #}
-                <span class="mx-1">⇢</span>
-                <div class="d-inline-flex align-items-center">
-                  {% if fnodeid in nodes %}
-                    <a href="node_{{ fnodeid }}.html" class="text-decoration-none fw-bold">
-                      {{ nodes[fnodeid].short_name }}
-                    </a>
-                  {% else %}
-                    <span class="fw-bold">UNK</span>
-                  {% endif %}
-                </div>
-              </div>
+        </td>
+        <td>
+          {% if best_attempt.route_back %}
+            <div class="text-nowrap">
+              <span class="text-muted">Out:</span> {{ best_attempt.route|length }}
+              <br>
+              <span class="text-muted">Return:</span> {{ best_attempt.route_back|length }}
             </div>
+          {% else %}
+            {{ best_attempt.route|length }}
           {% endif %}
         </td>
         <td>
-          {% if item.route_back %}
-            <div class="text-nowrap">
-              <span class="text-muted">Out:</span> {{ item.route|length }}
-              <br>
-              <span class="text-muted">Return:</span> {{ item.route_back|length }}
-            </div>
-          {% else %}
-            {{ item.route|length }}
+          {% if best_attempt.channel is not none %}
+          <span style="background-color: {{ utils.get_channel_color(best_attempt.channel) }}; color: white; padding: 2px 6px; border-radius: 4px;" title="Channel {{ best_attempt.channel }} ({{ utils.get_channel_name(best_attempt.channel) }})">
+            {{ utils.get_channel_name(best_attempt.channel, use_short_names=True) }}
+          </span>
           {% endif %}
         </td>
-        {# <td class="text-center">
-          {% if item.success %}
-            <i class="bi bi-check-circle-fill text-success" title="Traceroute completed successfully"></i>
+        <td>
+          {% if any_success %}
+            <span class="badge bg-success" title="Traceroute completed successfully">
+              <i class="bi bi-check-circle-fill"></i> Success
+            </span>
+          {% elif best_attempt.error_reason %}
+            <span class="badge bg-danger" title="Traceroute failed with error">
+              <i class="bi bi-x-circle-fill"></i> Error {{ best_attempt.error_reason }}
+            </span>
+          {% else %}
+            <span class="badge bg-warning" title="Traceroute did not complete">
+              <i class="bi bi-exclamation-circle-fill"></i> Incomplete
+            </span>
           {% endif %}
-        </td> #}
+        </td>
+        <td>
+          {% if item.attempts|length > 1 %}
+            <span class="badge bg-info">
+              {{ item.attempts|length }} attempts
+            </span>
+          {% endif %}
+        </td>
         <td>
           {% set from_id_hex = utils.convert_node_id_from_int_to_hex(item["from_id"]) %}
           {% set to_id_hex = utils.convert_node_id_from_int_to_hex(item["to_id"]) %}
           {% if from_id_hex in nodes and to_id_hex in nodes and
-                nodes[from_id_hex].position and nodes[to_id_hex].position %}
-            <a href="/traceroute_map.html?id={{ item.id }}" class="btn btn-sm btn-outline-primary" title="View traceroute map">
+                nodes[from_id_hex].position and nodes[from_id_hex].position.latitude is not none and nodes[from_id_hex].position.longitude is not none and
+                nodes[to_id_hex].position and nodes[to_id_hex].position.latitude is not none and nodes[to_id_hex].position.longitude is not none and
+                meshdata.is_position_fresh(nodes[from_id_hex].position, config.getint('server', 'node_location_prune_threshold')) and
+                meshdata.is_position_fresh(nodes[to_id_hex].position, config.getint('server', 'node_location_prune_threshold')) %}
+            <a href="/traceroute_map.html?id={{ best_attempt.id }}" class="btn btn-sm btn-outline-primary" title="View traceroute map">
               <i class="bi bi-map"></i> Map
             </a>
           {% endif %}
+        </td>
+      </tr>
+      <tr class="details-row bg-light" style="display:none;">
+        <td colspan="9">
+          <div class="p-2">
+            <strong>Traceroute Attempts:</strong>
+            <table class="table table-sm table-bordered mb-0">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Type</th>
+                  <th>Timestamp</th>
+                  <th>Status</th>
+                  <th>Error</th>
+                  <th>Route</th>
+                  <th>Return Route</th>
+                  <th>Channel</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for attempt in item.attempts %}
+                {% set has_successful_reply = item.attempts | selectattr('is_reply') | selectattr('success') | list | length > 0 %}
+                <tr>
+                  <td>{{ loop.index }}</td>
+                  <td>{% if attempt.is_reply %}Reply{% else %}Request{% endif %}</td>
+                  <td>{{ format_timestamp(attempt.ts_created) }}</td>
+                  <td>
+                    {% if attempt.is_reply %}
+                      {% if attempt.success or (attempt.is_reply and attempt.route|length == 0 and attempt.snr_towards|length > 0) %}
+                        <span class="badge bg-success">Success (reply)</span>
+                      {% else %}
+                        <span class="badge bg-warning">Incomplete (reply)</span>
+                      {% endif %}
+                    {% else %}
+                      {% if attempt.success %}
+                        <span class="badge bg-success">Success</span>
+                      {% elif attempt.error_reason %}
+                        <span class="badge bg-danger">Error</span>
+                      {% else %}
+                        <span class="badge bg-secondary">Request</span>
+                      {% endif %}
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% set error_map = {0: 'Timeout', 1: 'No Route', 2: 'Network Error', 3: 'Other'} %}
+                    {% if attempt.error_reason is not none %}
+                      {{ error_map.get(attempt.error_reason, attempt.error_reason) }}
+                    {% else %}-{% endif %}
+                  </td>
+                  <td>
+                    {# Zero-hop: SRC → DST with SNR #}
+                    {% set srcid = utils.convert_node_id_from_int_to_hex(attempt.from_id) %}
+                    {% set dstid = utils.convert_node_id_from_int_to_hex(attempt.to_id) %}
+                    {% if attempt.route|length == 0 and attempt.snr_towards|length > 0 %}
+                      {% if srcid in nodes %}<a href="/node_{{ srcid }}.html">{{ nodes[srcid].short_name }}</a>{% else %}UNK{% endif %}
+                      &rarr;
+                      {% if dstid in nodes %}<a href="/node_{{ dstid }}.html">{{ nodes[dstid].short_name }}</a>{% else %}UNK{% endif %}
+                    {% elif attempt.route|length > 0 %}
+                      {% for hop in attempt.route %}
+                        {% set hopid = utils.convert_node_id_from_int_to_hex(hop) %}
+                        {% if hopid in nodes %}
+                          <a href="/node_{{ hopid }}.html">{{ nodes[hopid].short_name }}</a>
+                        {% else %}
+                          <span>UNK</span>
+                        {% endif %}
+                        {% if not loop.last %} &rarr; {% endif %}
+                      {% endfor %}
+                    {% else %}-{% endif %}
+                  </td>
+                  <td>
+                    {# For reply, if zero-hop, show return as target → initiator with SNR #}
+                    {% set srcid = utils.convert_node_id_from_int_to_hex(attempt.from_id) %}
+                    {% set dstid = utils.convert_node_id_from_int_to_hex(attempt.to_id) %}
+                    {% if attempt.is_reply and attempt.route|length == 0 and attempt.snr_towards|length > 0 %}
+                      {# Show as destination → source for zero-hop reply #}
+                      {% if dstid in nodes %}<a href="/node_{{ dstid }}.html">{{ nodes[dstid].short_name }}</a>{% else %}UNK{% endif %}
+                      &rarr;
+                      {% if srcid in nodes %}<a href="/node_{{ srcid }}.html">{{ nodes[srcid].short_name }}</a>{% else %}UNK{% endif %}
+                    {% elif attempt.route_back|length == 0 and attempt.snr_back|length > 0 %}
+                      {% if dstid in nodes %}<a href="/node_{{ dstid }}.html">{{ nodes[dstid].short_name }}</a>{% else %}UNK{% endif %}
+                      &rarr;
+                      {% if srcid in nodes %}<a href="/node_{{ srcid }}.html">{{ nodes[srcid].short_name }}</a>{% else %}UNK{% endif %}
+                    {% elif attempt.route_back|length > 0 %}
+                      {% for hop in attempt.route_back %}
+                        {% set hopid = utils.convert_node_id_from_int_to_hex(hop) %}
+                        {% if hopid in nodes %}
+                          <a href="/node_{{ hopid }}.html">{{ nodes[hopid].short_name }}</a>
+                        {% else %}
+                          <span>UNK</span>
+                        {% endif %}
+                        {% if not loop.last %} &rarr; {% endif %}
+                      {% endfor %}
+                    {% else %}-{% endif %}
+                  </td>
+                  <td>{{ attempt.channel }}</td>
+                  <td>
+                    <a href="/traceroute_map.html?id={{ attempt.id }}" class="btn btn-sm btn-outline-primary" title="View this attempt on map">
+                      <i class="bi bi-map"></i>
+                    </a>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
         </td>
       </tr>
     {% endfor %}
@@ -216,4 +466,32 @@
     </div>
   {% endif %}
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.summary-row').forEach(function(row) {
+    row.addEventListener('click', function(event) {
+      // Prevent toggling if clicking on a link or button inside the row, or in the Actions column (td index 8)
+      if (
+        event.target.closest('a') ||
+        event.target.closest('button') ||
+        (event.target.closest('td') && event.target.closest('td').cellIndex === 8)
+      ) {
+        return;
+      }
+      var details = row.nextElementSibling;
+      if (details && details.classList.contains('details-row')) {
+        // Check if this row is already expanded
+        var isExpanded = details.style.display !== 'none';
+        // Hide all details rows first
+        document.querySelectorAll('.details-row').forEach(function(d) { d.style.display = 'none'; });
+        // If this row wasn't expanded, show it
+        if (!isExpanded) {
+          details.style.display = '';
+        }
+      }
+    });
+  });
+});
+</script>
 {% endblock %}
