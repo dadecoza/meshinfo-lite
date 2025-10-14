@@ -116,6 +116,10 @@ class HardwareModel(Enum):
     GAT562_MESH_TRIAL_TRACKER = 104
     PRIVATE_HW = 255
 
+    @classmethod
+    def _missing_(cls, value):
+        return HardwareModel.UNSET
+
 class Role(Enum):
     """
     Meshtastic node roles
