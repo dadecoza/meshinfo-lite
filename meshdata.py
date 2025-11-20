@@ -840,6 +840,10 @@ WHERE id = %s ORDER BY ts_created DESC LIMIT 1"""
             frm = data["from"]
             via = self.int_id(topic.split("/")[-1])
             self.verify_node(frm, via)
+        if "type" not in data:
+            portnum = data.get('decoded', {}).get('portnum', 'unknown')
+            logging.debug(f"Skipping message without type field (portnum: {portnum})")
+            return
         tp = data["type"]
         if tp == "nodeinfo":
             self.store_node(data)

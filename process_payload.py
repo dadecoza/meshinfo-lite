@@ -43,7 +43,7 @@ def get_packet(payload):
         if mp.HasField("encrypted") and not mp.HasField("decoded"):
             return decrypt_packet(mp)
     except Exception as e:
-        logging.error("Failed to decode payload " + str(e))
+        logging.error("Failed to decode payload " + str(e), exc_info=logging.getLogger().level == logging.DEBUG)
     return mp
 
 
