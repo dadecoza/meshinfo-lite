@@ -840,10 +840,18 @@ WHERE id = %s ORDER BY ts_created DESC LIMIT 1"""
             frm = data["from"]
             via = self.int_id(topic.split("/")[-1])
             self.verify_node(frm, via)
+        # Handle packets without 'type' field
         if "type" not in data:
             portnum = data.get('decoded', {}).get('portnum', 'unknown')
-            logging.debug(f"Skipping message without type field (portnum: {portnum})")
-            return
+            # Range Test packets (portnum 66) don't have a 'type' field but are valid
+            if portnum == 66:
+                logging.debug(f"Range Test packet detected (portnum: 66)")
+                # For now, we just acknowledge these packets exist
+                # TODO: Implement store_range_test() if we want to track these
+                return
+            else:
+                logging.debug(f"Skipping message without type field (portnum: {portnum})")
+                return
         tp = data["type"]
         if tp == "nodeinfo":
             self.store_node(data)
