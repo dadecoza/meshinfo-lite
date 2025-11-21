@@ -117,7 +117,7 @@ WHERE status='VERIFIED' AND email = %s"""
                 algorithms=["HS256"]
             )
         except Exception as e:
-            logger.error(str(e))
+            logger.error(str(e), exc_info=logger.level == logging.DEBUG)
             return None
 
     def verify_account(self, code):

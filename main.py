@@ -62,7 +62,7 @@ def threadwrap(threadfunc):
             try:
                 threadfunc()
             except BaseException as e:
-                logger.error('{!r}; restarting thread'.format(e))
+                logger.error('{!r}; restarting thread'.format(e), exc_info=logger.level == logging.DEBUG)
             else:
                 logger.error('exited normally, bad thread; restarting')
     return wrapper
@@ -106,7 +106,7 @@ for i in range(10):
         break
     except Exception as e:
         logger.warning(f"Waiting for database to become ready.")
-        logger.error(str(e))
+        logger.error(str(e), exc_info=logger.level == logging.DEBUG)
         time.sleep(10)
 if not db_connected:
     logger.error("Giving up. Bye.")

@@ -11,10 +11,17 @@ services:
       - ./mysql_data:/var/lib/mysql
     networks:
       - backend
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
   meshinfo:
     image: ghcr.io/dadecoza/meshinfo-lite:0.1.5-za
     depends_on:
-      - mariadb
+      mariadb:
+        condition: service_healthy
     volumes:
       - ./config.ini:/app/config.ini
     environment:
