@@ -36,6 +36,7 @@ If you're interested in aeronautical (ADS-B/ACARS/VDL/HFDL/SATCOM) or ship track
 - text
 - traceroute
 - mapreport
+- routing
 
 ## Features
 
@@ -49,6 +50,7 @@ If you're interested in aeronautical (ADS-B/ACARS/VDL/HFDL/SATCOM) or ship track
 - MQTT Messages
 - Telemetry
 - Traceroutes
+- Routing Messages
 
 ### Upcoming
 
@@ -59,16 +61,27 @@ If you're interested in aeronautical (ADS-B/ACARS/VDL/HFDL/SATCOM) or ship track
 
 If you're using this and have questions, or perhaps you want to join in on the dev effort and want to interact collaboratively, come chat with us on [#meshinfo on Meshtastic ZA Discord](https://discord.gg/cmFCKBxY).
 
+## Documentation
+
+📚 **Complete documentation is available in the [docs/](docs/) directory:**
+
+- **[Setup Guide](docs/SETUP_DOCKER.md)** - Docker Compose installation (recommended)
+- **[Manual Setup](docs/SETUP.md)** - Traditional installation guide
+- **[Caching & Performance](docs/CACHING.md)** - Memory management and optimization
+- **[Contributing](docs/CONTRIBUTING.md)** - How to contribute to the project
+
 ## Running
 
 ### Docker Compose (preferred for 24/7 servers)
 
-#### Setup
+For detailed Docker setup instructions, see **[docs/SETUP_DOCKER.md](docs/SETUP_DOCKER.md)**.
+
+#### Quick Setup
 
 ##### Clone the repo
 
 ```sh
-git clone https://github.com/dadecoza/meshinfo-lite.git
+git clone https://github.com/agessaman/meshinfo-lite.git
 cd meshinfo-lite
 ```
 
@@ -123,7 +136,7 @@ python main.py
 Clone the repository.
 
 ```sh
-git clone https://github.com/dadecoza/meshinfo-lite.git
+git clone https://github.com/agessaman/meshinfo-lite.git
 ```
 
 If already existing, be sure to pull updates.
@@ -150,9 +163,7 @@ the templates.
 
 ## Contributing
 
-We happily accept Pull Requests!
-
-TODO: Need to rewrite this section.
+We happily accept Pull Requests! Please see **[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)** for detailed guidelines and **[docs/CODE_OF_CONDUCT.md](docs/CODE_OF_CONDUCT.md)** for our community standards.
 
 ## Meshtastic node settings
 

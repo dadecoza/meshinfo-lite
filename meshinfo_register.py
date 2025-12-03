@@ -85,21 +85,25 @@ WHERE email = %s"""
         cur.close()
         self.db.commit()
 
-    def authenticate(self, email, password):
-        sql = """SELECT password, username FROM meshuser
-WHERE status='VERIFIED' AND email = %s"""
-        params = (email.lower(), )
+    def authenticate(self, email_or_username, password):
+        """Authenticate user by email or username."""
+        # Try to find user by email first, then by username
+        sql = """SELECT password, username, email FROM meshuser
+WHERE status='VERIFIED' AND (email = %s OR username = %s)"""
+        params = (email_or_username.lower(), email_or_username)
         cur = self.db.cursor()
         cur.execute(sql, params)
         row = cur.fetchone()
         hashed_password = row[0] if row else None
+        username = row[1] if row else None
+        email = row[2] if row else None
         cur.close()
         if hashed_password and \
                 utils.check_password(password, hashed_password):
             encoded_jwt = jwt.encode(
                 {
                     "email": email,
-                    "username": row[1],
+                    "username": username,
                     "time": int(time.time())
                 },
                 self.config["registrations"]["jwt_secret"],
@@ -151,6 +155,79 @@ WHERE email = %s"""
         cur.close()
         self.db.commit()
         return otp
+
+    def change_password(self, email, old_password, new_password):
+        """Change password with old password verification."""
+        # Validate new password
+        if not new_password or len(new_password) < 6:
+            return {"error": "New password must be at least 6 characters long."}
+        
+        # Verify old password
+        sql = """SELECT password FROM meshuser
+WHERE status='VERIFIED' AND email = %s"""
+        params = (email.lower(), )
+        cur = self.db.cursor()
+        cur.execute(sql, params)
+        row = cur.fetchone()
+        hashed_password = row[0] if row else None
+        cur.close()
+        
+        if not hashed_password:
+            return {"error": "Account not found or not verified."}
+        
+        if not utils.check_password(old_password, hashed_password):
+            return {"error": "Current password is incorrect."}
+        
+        # Update password
+        hashed_new = utils.hash_password(new_password)
+        sql = """UPDATE meshuser SET password = %s, ts_updated = NOW()
+WHERE email = %s"""
+        params = (hashed_new, email.lower())
+        cur = self.db.cursor()
+        cur.execute(sql, params)
+        cur.close()
+        self.db.commit()
+        
+        return {"success": "Password changed successfully."}
+
+    def unlink_node(self, email, node_id):
+        """Unlink a node from a user account."""
+        # Convert hex node ID to int if needed
+        if isinstance(node_id, str):
+            try:
+                node_id = utils.convert_node_id_from_hex_to_int(node_id)
+            except (ValueError, TypeError):
+                return {"error": "Invalid node ID format."}
+        
+        # Verify the node exists and belongs to this user
+        sql = """SELECT owner FROM nodeinfo WHERE id = %s"""
+        params = (node_id, )
+        cur = self.db.cursor()
+        cur.execute(sql, params)
+        row = cur.fetchone()
+        cur.close()
+        
+        if not row:
+            return {"error": "Node not found."}
+        
+        if row[0] != email.lower():
+            return {"error": "You do not own this node."}
+        
+        # Unlink the node - include ownership check in WHERE clause for atomic operation
+        # This prevents race conditions where ownership might change between SELECT and UPDATE
+        sql = """UPDATE nodeinfo SET owner = NULL WHERE id = %s AND owner = %s"""
+        params = (node_id, email.lower())
+        cur = self.db.cursor()
+        cur.execute(sql, params)
+        rows_affected = cur.rowcount
+        cur.close()
+        self.db.commit()
+        
+        # Verify the update actually happened
+        if rows_affected == 0:
+            return {"error": "Failed to unlink node. It may have been unlinked already or you do not own it."}
+        
+        return {"success": "Node unlinked successfully."}
 
     def __del__(self):
         if self.db:

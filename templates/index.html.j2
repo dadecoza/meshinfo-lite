@@ -2,14 +2,23 @@
 
 {% block title %}{{ config["mesh"]["name"] }}{% endblock %}
 
+{% block og_title %}{{ mesh_name }} - Mesh Network Overview{% endblock %}
+{% block og_description %}Welcome to MeshInfo for the {{ mesh_region }} region! View active nodes, network coverage, and community info for the {{ mesh_short_name }} Meshtastic mesh network.{% endblock %}
+{% block twitter_title %}{{ mesh_name }} - Mesh Network Overview{% endblock %}
+{% block twitter_description %}Welcome to MeshInfo for the {{ mesh_region }} region! View active nodes, network coverage, and community info for the {{ mesh_short_name }} Meshtastic mesh network.{% endblock %}
+
 {% block content %}
+{% set mesh_name = config['mesh'].get('name', 'Mesh Network') or 'Mesh Network' %}
+{% set mesh_region = config['mesh'].get('region', 'your region') or 'your region' %}
+{% set mesh_short_name = config['mesh'].get('short_name', 'Mesh') or 'Mesh' %}
+
 <div class="container pt-3">
   <div class="row">
     <div class="col-md-12 text-center mb-4">
-      <img src="/images/logo.png" alt="logo" style="height: 250px">
-      <h2>{{ config["mesh"]["name"] }}</h2>
+      <img src="/images/logos/logo.webp" alt="logo" style="height: 250px">
+      <h2>{{ mesh_name }}</h2>
       <p>
-        This site provides information on <a href="nodes.html"><span class="font-weight-bold">{{ active_nodes|length }}</span> active nodes</a> in the Puget Sound Meshtastic network.
+        This site provides information on <a href="nodes.html"><span class="font-weight-bold">{{ active_nodes|length }}</span> active nodes</a> in the {{ mesh_region }} region ({{ mesh_short_name }}) network.
       </p>
       <p>Last updated: {{ format_timestamp(timestamp.timestamp()) }}</p>
     </div>
@@ -23,7 +32,7 @@
         </div>
         <div class="card-body">
           <p>
-            MeshInfo is a web-based tool which collects and visualizes data from <a href="https://meshtastic.org">Meshtastic</a> nodes across the Puget Sound region. It provides visibility into our <a href="https://pugetmesh.org/">PugetMesh community mesh network</a>, helping both new and experienced members understand network coverage, identify growth opportunities, and troubleshoot connectivity issues.
+            MeshInfo is a web-based tool which collects and visualizes data from <a href="https://meshtastic.org">Meshtastic</a> nodes across the {{ mesh_region }} region. It provides visibility into your <a href="{{ config['mesh']['contact'] }}">community mesh network</a>, helping both new and experienced members understand network coverage, identify growth opportunities, and troubleshoot connectivity issues.
           </p>
           <p>
             Through MeshInfo, you can view node locations on maps, check detailed node information including telemetry data, visualize node connections, and search for specific nodes by ID or name.
@@ -53,7 +62,7 @@
               <strong>Enable Position Sharing (optional but recommended):</strong> Go to <span class="text-danger">Settings > Channels > LongFast</span> and set <span class="text-danger">"Position Enabled"</span> to <span class="text-danger">TRUE</span>. Set <span class="text-danger">"Uplink Enabled"</span> to <span class="text-danger">TRUE</span>. This allows your node's position and recieved messages to be shared with other nodes and the MQTT server.
             </li>
             <li class="list-group-item">
-              <strong>Set Position Precision:</strong> Set position precision slider to <span class="text-danger">1194ft (364m)</span>. This is the most accurate setting that will still show up on maps. You can use higher precision (lower distance values), but they will be rounded to this level for privacy reasons. Settings with lower precision (larger distances) will appear as configured.
+              <strong>Set Position Precision:</strong> Set the position precision slider to a value you are comfortable with sharing. The map and node information pages will represent your position with the accuracy that you select for public channels and MapInfo packets.
             </li>
             <li class="list-group-item">
               <strong>Configure Your Position:</strong> Either use GPS (if your device has one) or set a fixed position via <span class="text-danger">Settings > Position</span>.
@@ -61,19 +70,19 @@
           </ul>
           <p><strong>Note:</strong> Your node will still appear in MeshInfo without location data, but distance and direction information to other nodes won't be available.</p>
 
-          <h4>PugetMesh MQTT Connection (recommended):</h4>
-          <p><strong>Important:</strong> Users who don't connect directly to the <a href="https://pugetmesh.org/meshtastic/#mqtt-and-maps">PugetMesh MQTT server</a> won't be sharing information with other users in the region. Connecting your node to our MQTT server allows your data to contribute to the regional mesh network and helps everyone better understand network coverage.</p>
-          </p> To connect your node directly to the PugetMesh MQTT server, configure these settings in <span class="text-danger">Settings > Modules > MQTT</span>:</p>
+          <h4>MQTT Connection (recommended):</h4>
+          <p><strong>Important:</strong> Users who connect to the MQTT can share what their node is hearing on the LoRa network. Connecting your node to the MQTT server allows your data to contribute to analysis of the regional mesh network, and helps everyone better understand network coverage.</p>
+          </p> To connect your node to the {{ mesh_short_name }} MQTT server, configure these settings in <span class="text-danger">Settings > Modules > MQTT</span>:</p>
           
           <ul class="list-group mb-4">
             <li class="list-group-item">
-              <strong>Address:</strong> <code>mqtt.davekeogh.com</code>
+              <strong>Address:</strong> <code>{{ config['mqtt']['broker'] }}</code>
             </li>
             <li class="list-group-item">
-              <strong>Username:</strong> <code>meshdev</code>
+              <strong>Username:</strong> <code>{{ config['mqtt']['username'] }}</code>
             </li>
             <li class="list-group-item">
-              <strong>Password:</strong> <code>large4cats</code>
+              <strong>Password:</strong> <code>{{ config['mqtt']['password'] }}</code>
             </li>
             <li class="list-group-item">
               <strong>Encryption Enabled:</strong> Yes
@@ -85,7 +94,7 @@
               <strong>TLS Enabled:</strong> No
             </li>
             <li class="list-group-item">
-              <strong>Root topic:</strong> <code>msh/US</code>
+              <strong>Root topic:</strong> <code>{{ config['mqtt']['topic'].rstrip('/#') }}</code>
             </li>
           </ul>
 
@@ -106,11 +115,15 @@
               <strong>Benefits:</strong> When enabled across multiple nodes, this helps build a comprehensive graph of the mesh network, showing how nodes are connected and the quality of links between them (displayed as SNR values).
             </li>
           </ul>
-          
+          {% if config['mesh'].get('config_url') %}
           <p>
-            For complete setup instructions, visit the PugetMesh configuration page:
+            For complete setup instructions, visit the {{ mesh_short_name }} configuration page:
           </p>
-          <a href="https://pugetmesh.org/meshtastic/config/#get-on-the-map" class="btn btn-primary">View Full Configuration Guide</a>
+
+          <div class="text-center">
+            <a href="{{ config['mesh']['config_url'] }}" class="btn btn-primary">View Full Configuration Guide</a>
+          </div>
+          {% endif %}
         </div>
       </div>
     </div>
@@ -120,15 +133,22 @@
     <div class="col-md-12">
       <div class="card">
         <div class="card-header bg-warning">
-          <h3 class="mb-0">Join the PugetMesh Community</h3>
+          <h3 class="mb-0">Join the {{ mesh_short_name }} Community</h3>
         </div>
         <div class="card-body">
           <p>
-            PugetMesh is a volunteer-driven group supporting mesh networks in the Puget Sound region. We focus on building a resilient off-grid communication network using Meshtastic technology.
+            {{ mesh_short_name }} is a volunteer-driven group supporting mesh networks in your region. We focus on building a resilient off-grid communication network using Meshtastic technology.
           </p>
           <div class="text-center">
-            <a href="https://discord.gg/ANvUg3AyZt" class="btn btn-secondary mr-2">Join Our Discord</a>
-            <a href="https://pugetmesh.org/" class="btn btn-secondary">Visit PugetMesh.org</a>
+            {% if config['mesh'].get('discord_url') %}
+            <a href="{{ config['mesh']['discord_url'] }}" class="btn btn-secondary mr-2">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-discord align-middle" viewBox="0 0 16 16">
+                <path d="M13.545 2.907a13.2 13.2 0 0 0-3.257-1.011.05.05 0 0 0-.052.025c-.141.25-.297.577-.406.833a12.2 12.2 0 0 0-3.658 0 8 8 0 0 0-.412-.833.05.05 0 0 0-.052-.025c-1.125.194-2.22.534-3.257 1.011a.04.04 0 0 0-.021.018C.356 6.024-.213 9.047.066 12.032q.003.022.021.037a13.3 13.3 0 0 0 3.995 2.02.05.05 0 0 0 .056-.019q.463-.63.818-1.329a.05.05 0 0 0-.01-.059l-.018-.011a9 9 0 0 1-1.248-.595.05.05 0 0 1-.02-.066l.015-.019q.127-.095.248-.195a.05.05 0 0 1 .051-.007c2.619 1.196 5.454 1.196 8.041 0a.05.05 0 0 1 .053.007q.121.1.248.195a.05.05 0 0 1-.004.085 8 8 0 0 1-1.249.594.05.05 0 0 0-.03.03.05.05 0 0 0 .003.041c.24.465.515.909.817 1.329a.05.05 0 0 0 .056.019 13.2 13.2 0 0 0 4.001-2.02.05.05 0 0 0 .021-.037c.334-3.451-.559-6.449-2.366-9.106a.03.03 0 0 0-.02-.019m-8.198 7.307c-.789 0-1.438-.724-1.438-1.612s.637-1.613 1.438-1.613c.807 0 1.45.73 1.438 1.613 0 .888-.637 1.612-1.438 1.612m5.316 0c-.788 0-1.438-.724-1.438-1.612s.637-1.613 1.438-1.613c.807 0 1.451.73 1.438 1.613 0 .888-.631 1.612-1.438 1.612"/>
+              </svg>
+              Join Our Discord
+            </a>
+            {% endif %}
+            <a href="{{ config['mesh']['url'] }}" class="btn btn-secondary">Visit {{ mesh_short_name }} Website</a>
           </div>
         </div>
       </div>

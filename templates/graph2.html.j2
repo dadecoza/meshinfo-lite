@@ -1,0 +1,292 @@
+{% set this_page = "graph" %}
+{% extends "layout.html.j2" %}
+
+{% block title %}Graph | MeshInfo{% endblock %}
+{% block content %}
+  <div class="container pt-3">
+  <h5>{{ this_page.title() }}</h5>
+
+  <div class="btn-group mb-3" role="group" aria-label="View type">
+    <a href="{{ url_for('graph2', view_type='neighbor_info') }}"
+       class="btn btn-{{ 'primary' if view_type == 'neighbor_info' else 'outline-primary' }}">
+      Neighbor Info
+    </a>
+    <a href="{{ url_for('graph2', view_type='zero_hop') }}"
+       class="btn btn-{{ 'primary' if view_type == 'zero_hop' else 'outline-primary' }}">
+      Zero Hop
+    </a>
+    <a href="{{ url_for('graph2', view_type='merged') }}"
+       class="btn btn-{{ 'primary' if view_type == 'merged' else 'outline-primary' }}">
+      Merged
+    </a>
+  </div>
+  <p>
+    Connections shown: <span class="text-primary">Blue solid lines</span> = Neighbor Info module messages, 
+    <span class="text-success">Green dashed lines</span> = LoRa message reception (Zero Hop). 
+    Merged view shows both types.
+  </p>
+  </div>
+  <div id="cy" style="width: 100%; height: 85vh;"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+  <script src="https://unpkg.com/layout-base/layout-base.js"></script>
+  <script src="https://unpkg.com/cose-base/cose-base.js"></script>
+  <script src="https://unpkg.com/cytoscape-fcose/cytoscape-fcose.js"></script>
+  <script src="https://unpkg.com/cytoscape-panzoom/cytoscape-panzoom.js"></script>
+  <script src="https://unpkg.com/cytoscape-popper/cytoscape-popper.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/cytoscape-panzoom/cytoscape.js-panzoom.css">
+
+  <script>
+    var graphData = {{ graph|tojson|safe }};
+
+    // Transform data into Cytoscape format
+    var elements = {
+      nodes: graphData.nodes.map(node => ({
+        data: {
+          id: node.id,
+          short: node.id,
+          long_name: node.node_data.long_name || 'Unknown Name',
+          nodeData: node.node_data,
+          image: node.icon_url
+        }
+      })),
+      edges: graphData.edges.map(edge => ({
+        data: {
+          id: edge.from + '-' + edge.to,
+          source: edge.from,
+          target: edge.to,
+          edgeData: edge.edge_data
+        }
+      }))
+    };
+
+    // First create the cy instance without animation
+    var cy = cytoscape({
+      container: document.getElementById('cy'),
+      elements: elements,
+      style: [
+        {
+          selector: 'node',
+          style: {
+            'background-image': 'data(image)',
+            'background-fit': 'contain',
+            'background-color': '#f8f9fa',
+            'width': '35px',
+            'height': '35px',
+            'label': 'data(long_name)',
+            'text-wrap': 'wrap',
+            'text-max-width': '100px',
+            'text-valign': 'bottom',
+            'text-margin-y': '6px',
+            'font-size': '12px',
+            'font-weight': '600',
+            'text-background-color': '#ffffff',
+            'text-background-opacity': 0.8,
+            'text-background-padding': '2px',
+            'overlay-padding': '6px',
+            'z-index': 1000
+          }
+        },
+        {
+          selector: 'edge',
+          style: {
+            'width': 2,
+            'line-color': function(ele) {
+              var sourceType = ele.data('edgeData').source_type;
+              return sourceType === 'neighbor_info' ? '#0d6efd' : '#198754';
+            },
+            'line-style': function(ele) {
+              return ele.data('edgeData').source_type === 'zero_hop' ? 'dashed' : 'solid';
+            },
+            'curve-style': 'bezier',
+            'opacity': 0.8,
+            'z-index': 999
+          }
+        },
+        {
+          selector: '.highlighted',
+          style: {
+            'opacity': 1,
+            'width': 3,
+            'line-color': '#ffc107',
+            'z-index': 9999
+          }
+        },
+        {
+          selector: '.faded',
+          style: {
+            'opacity': 0.2
+          }
+        },
+        {
+          selector: '.highlighted-node',
+          style: {
+            'border-width': '2px',
+            'border-color': '#ffc107',
+            'border-opacity': 1,
+            'background-color': '#fff3cd',
+            'z-index': 9999
+          }
+        }
+      ],
+    });
+
+    // Then apply the layout
+    var layout = cy.layout({
+      name: 'fcose',
+      quality: 'proof',
+      randomize: false,
+      animate: true,
+      animationDuration: 2000,
+      fit: false,
+      padding: 75,
+      nodeDimensionsIncludeLabels: true,
+      nodeRepulsion: function(node) {
+        const baseRepulsion = 50000;
+        const connectionCount = node.degree();
+        return baseRepulsion * Math.pow(1.5, Math.min(connectionCount, 8));
+      },
+      idealEdgeLength: function(edge) {
+        const sourceConnections = edge.source().degree();
+        const targetConnections = edge.target().degree();
+        const maxConnections = Math.max(sourceConnections, targetConnections);
+        return 80 + (maxConnections * 15);
+      },
+      edgeElasticity: 0.7,
+      gravity: 0.4,
+      gravityRange: 5.0,
+      numIter: 12000,
+      tile: true,
+      tilingPaddingVertical: 50,
+      tilingPaddingHorizontal: 50,
+      preventOverlap: true,
+      preventOverlapPadding: 20,
+      componentSpacing: 150,
+      prioritizeNodes: function(node) {
+        return node.degree();
+      }
+    });
+
+    // Run the layout
+    layout.run();
+
+    // Initialize tooltips storage
+    var tippies = {};
+
+    // Create and manage tooltips
+    var makeTippy = function(node) {
+      var nodeData = node.data('nodeData');
+      var content = `
+        <div style="text-align: left;">
+          <strong>ID:</strong> ${node.id()}<br>
+          <strong>Name:</strong> ${nodeData.long_name || 'Unknown Name'}<br>
+          <strong>Hardware:</strong> ${nodeData.hw_model || 'Unknown HW'}<br>
+          <strong>Last Seen:</strong> ${nodeData.last_seen || 'Never'}<br>
+          <strong>Connections:</strong> ${node.neighborhood().length}
+        </div>
+      `;
+      
+      var ref = node.popperRef();
+      
+      return tippy(ref, {
+        content: content,
+        trigger: 'manual',
+        placement: 'bottom',
+        arrow: true,
+        theme: 'light-border',
+        interactive: true,
+        allowHTML: true
+      });
+    };
+
+    // Add Tippy.js and its dependencies
+    var popperJs = document.createElement('script');
+    popperJs.src = 'https://unpkg.com/@popperjs/core@2';
+    document.head.appendChild(popperJs);
+
+    var tippyScript = document.createElement('script');
+    tippyScript.src = 'https://unpkg.com/tippy.js@6';
+    document.head.appendChild(tippyScript);
+
+    var tippyStyle = document.createElement('link');
+    tippyStyle.rel = 'stylesheet';
+    tippyStyle.href = 'https://unpkg.com/tippy.js@6/themes/light-border.css';
+    document.head.appendChild(tippyStyle);
+
+    // Initialize tooltips after Tippy loads
+    tippyScript.onload = function() {
+      cy.nodes().forEach(function(node) {
+        tippies[node.id()] = makeTippy(node);
+      });
+    };
+
+    // Add hover effects and click handling for nodes
+    cy.on('mouseover', 'node', function(e) {
+      var node = e.target;
+      
+      // Show tooltip if Tippy is loaded
+      if (window.tippy && tippies[node.id()]) {
+        tippies[node.id()].show();
+      }
+      
+      // Highlight the node
+      node.addClass('highlighted-node');
+      
+      // Get connected nodes and edges
+      var neighborhood = node.neighborhood();
+      var connectedEdges = node.connectedEdges();
+      
+      // Highlight connected edges and nodes
+      connectedEdges.addClass('highlighted');
+      neighborhood.nodes().addClass('highlighted-node');
+      
+      // Fade all other elements
+      cy.elements()
+        .difference(neighborhood.union(node))
+        .addClass('faded');
+    });
+
+    cy.on('mouseout', 'node', function(e) {
+      var node = e.target;
+      
+      // Hide tooltip if Tippy is loaded
+      if (window.tippy && tippies[node.id()]) {
+        tippies[node.id()].hide();
+      }
+      
+      // Remove all highlighting and fading
+      cy.elements()
+        .removeClass('highlighted')
+        .removeClass('highlighted-node')
+        .removeClass('faded');
+    });
+
+    // Handle node clicks - using 'tap' for both mouse clicks and touch events
+    cy.on('tap', 'node', function(e) {
+      // Prevent event from bubbling up
+      e.preventDefault();
+      
+      var node = e.target;
+      var nodeId = node.id();
+      
+      // Navigate to the node page
+      window.location.href = "node_" + nodeId.replace("!", "") + ".html";
+    });
+
+    // Add pan and zoom controls
+    cy.panzoom({
+      minZoom: 0.2,
+      maxZoom: 3,
+      zoomFactor: 0.05,
+      position: 'bottom-right'
+    });
+
+    // Initial viewport adjustment
+    cy.zoom(0.7);
+    cy.center();
+
+    // Remove the old click handler if it exists
+    cy.removeListener('tap', 'node');
+
+  </script>
+{% endblock %}

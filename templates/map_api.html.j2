@@ -1,0 +1,1671 @@
+{% set this_page = "map" %}
+{% extends "layout.html.j2" %}
+
+{% block title %}Map | MeshInfo{% endblock %}
+
+{% block og_title %}Network Map | {{ config['mesh']['name'] }}{% endblock %}
+{% block og_description %}Interactive map showing all nodes in the {{ config['mesh']['short_name'] }} mesh network. View node positions, connections, and real-time network status.{% endblock %}
+{% block og_image_width %}1200{% endblock %}
+{% block og_image_height %}630{% endblock %}
+{% block twitter_title %}Network Map | {{ config['mesh']['name'] }}{% endblock %}
+{% block twitter_description %}Interactive map showing all nodes in the {{ config['mesh']['short_name'] }} mesh network. View node positions, connections, and real-time network status.{% endblock %}
+{% block twitter_image_width %}1200{% endblock %}
+{% block twitter_image_height %}630{% endblock %}
+
+{% block head %}
+  {{ super() }}
+  {% include "map_dependencies.html.j2" %}
+  
+  <style>
+    /* Loading overlay styles will be applied dynamically */
+  </style>
+{% endblock %}
+
+{% block content %}
+  <div id="map" class="map" style="height: 100vh"></div>
+  
+  {# Settings Toggle Button #}
+  <button id="settingsToggle" class="settings-toggle">
+    <i class="bi bi-gear-fill"></i>
+  </button>
+
+  {# Settings Panel - Hidden by default #}
+  <div id="settings" class="settings-panel" style="display: none;">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h5 class="m-0">Settings</h5>
+      <small class="text-muted">Changes are automatically applied.</small>
+    </div>
+    
+    <div class="mb-3">
+      <label class="form-label">Nodes Max Age</label>
+      <select id="nodesMaxAge" class="form-select form-select-sm">
+        <option value="0">Show All</option>
+        <option value="900">15 minutes</option>
+        <option value="1800">30 minutes</option>
+        <option value="3600">1 hour</option>
+        <option value="10800">3 hours</option>
+        <option value="21600">6 hours</option>
+        <option value="43200">12 hours</option>
+        <option value="86400">24 hours</option>
+        <option value="172800">2 days</option>
+        <option value="259200">3 days</option>
+        <option value="345600">4 days</option>
+        <option value="432000">5 days</option>
+        <option value="518400">6 days</option>
+        <option value="604800">7 days</option>
+      </select>
+      <small class="text-muted d-block">Nodes not updated within this time are hidden.</small>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label">Nodes Offline Age</label>
+      <select id="nodesOfflineAge" class="form-select form-select-sm">
+        <option value="never">Don't show as offline</option>
+        <option value="900">15 minutes</option>
+        <option value="1800">30 minutes</option>
+        <option value="3600">1 hour</option>
+        <option value="10800">3 hours</option>
+        <option value="21600">6 hours</option>
+        <option value="43200">12 hours</option>
+        <option value="86400">24 hours</option>
+        <option value="172800">2 days</option>
+        <option value="259200">3 days</option>
+        <option value="345600">4 days</option>
+        <option value="432000">5 days</option>
+        <option value="518400">6 days</option>
+        <option value="604800">7 days</option>
+      </select>
+      <small class="text-muted d-block">Nodes not updated within this time will show as gray icons.</small>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label">MQTT Disconnected Age</label>
+      <select id="nodesDisconnectedAge" class="form-select form-select-sm">
+        <option value="900">15 minutes</option>
+        <option value="1800">30 minutes</option>
+        <option value="3600">1 hour</option>
+        <option value="10800">3 hours</option>
+        <option value="21600">6 hours</option>
+        <option value="43200">12 hours</option>
+        <option value="86400">24 hours</option>
+        <option value="172800">2 days</option>
+        <option value="259200">3 days</option>
+        <option value="345600">4 days</option>
+        <option value="432000">5 days</option>
+        <option value="518400">6 days</option>
+        <option value="604800">7 days</option>
+      </select>
+      <small class="text-muted d-block">Time window for MQTT uplink status. Nodes that uplinked within this time show as blue icons.</small>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label">Channel</label>
+      <select id="channelFilter" class="form-select form-select-sm">
+        <option value="all">All Channels</option>
+        {% for channel in Channel %}
+          <option value="{{ channel.value }}">{{ utils.get_channel_name(channel.value) }} ({{ channel.value }})</option>
+        {% endfor %}
+      </select>
+      <small class="text-muted d-block">Filter nodes by communication channel.</small>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label">Neighbours Max Distance (meters)</label>
+      <input type="number" id="neighboursMaxDistance" class="form-control form-control-sm" min="0" step="100" value="5000">
+      <small class="text-muted d-block">Neighbours further than this are hidden.</small>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label">Auto Refresh</label>
+      <select id="autoRefresh" class="form-select form-select-sm">
+        <option value="0">Disabled</option>
+        <option value="30">30 seconds</option>
+        <option value="60">1 minute</option>
+        <option value="300">5 minutes</option>
+        <option value="600">10 minutes</option>
+      </select>
+      <small class="text-muted d-block">Automatically refresh map data.</small>
+    </div>
+  </div>
+
+  {# Node Detail Popup #}
+  <div id="nodeDetail" class="ol-popup" style="display: none;">
+    <a href="#" id="popup-closer" class="ol-popup-closer"></a>
+    <div id="popup-content"></div>
+  </div>
+
+  {# Node Info Panel - Hidden by default #}
+  <div id="details" class="node-info-panel" style="display: none;">
+    <div>
+      <div id="details-title"></div>
+      <div id="details-subtitle"></div>
+    </div>
+    <div id="details-content">
+    </div>
+  </div>
+
+  {# Loading overlay will be created dynamically #}
+
+  <div id="legend" class="p-2" style="background-color: #ffffff;">
+    <div>LEGEND</div>
+    <div>
+      <div style="background-color: #66FF66; height: 4px; width: 25px; display: inline-flex;"></div> Heard A Neighbor
+    </div>
+    <div>
+      <div style="background-color: #6666FF; height: 4px; width: 25px; display: inline-flex;"></div> Heard By Neighbor
+    </div>
+    <div>
+      <div style="background-color: #FF66FF; height: 4px; width: 25px; display: inline-flex;"></div> Both Heard Each Other
+    </div>
+  </div>
+
+  <script type="module">
+    import Map from 'ol/Map.js';
+    import View from 'ol/View.js';
+    import TileLayer from 'ol/layer/Tile.js';
+    import OSM from 'ol/source/OSM.js';
+    import VectorLayer from 'ol/layer/Vector.js';
+    import VectorSource from 'ol/source/Vector.js';
+    import Feature from 'ol/Feature.js';
+    import Point from 'ol/geom/Point.js';
+    import LineString from 'ol/geom/LineString.js';
+    import {fromLonLat} from 'ol/proj.js';
+    import Style from 'ol/style/Style.js';
+    import Circle from 'ol/style/Circle.js';
+    import Fill from 'ol/style/Fill.js';
+    import Stroke from 'ol/style/Stroke.js';
+    import Overlay from 'ol/Overlay.js';
+    import Select from 'ol/interaction/Select.js';
+    import {click} from 'ol/events/condition.js';
+
+    // Global variables
+    let map;
+    let nodesLayer;
+    let neighborLayers = [];
+    let nodes = {};
+    let refreshInterval = null;
+    let previousNodePositions = new Map(); // Track previous positions for movement lines
+    let positionChangeLayer; // Layer for position change lines
+    let offlineNodes = new Set(); // Track nodes that were offline
+    // Simple object to track node movement patterns - much more reliable than Map
+    let nodeMovementHistory = {}; // Track node movement patterns: {nodeId: [{position, timestamp}, ...]}
+    
+    // Helper function to ensure nodeMovementHistory is always a valid object
+    function ensureNodeMovementHistory() {
+      // Simple check - just ensure it's an object
+      if (!nodeMovementHistory || typeof nodeMovementHistory !== 'object') {
+        console.warn('nodeMovementHistory corrupted, reinitializing...', typeof nodeMovementHistory, nodeMovementHistory);
+        nodeMovementHistory = {};
+      }
+      return nodeMovementHistory;
+    }
+
+    // Initialize settings from localStorage
+    const settings = {
+      nodesMaxAge: localStorage.getItem('nodesMaxAge') || '259200', // 3 days default
+      nodesDisconnectedAge: localStorage.getItem('nodesDisconnectedAge') || '3600', // 1 hour default
+      nodesOfflineAge: localStorage.getItem('nodesOfflineAge') || '10800', // 3 hours default
+      neighboursMaxDistance: localStorage.getItem('neighboursMaxDistance') || '5000',
+      channelFilter: localStorage.getItem('channelFilter') || 'all',
+      autoRefresh: localStorage.getItem('autoRefresh') || '0'
+    };
+
+    // Initialize map
+    function initializeMap() {
+      const default_position = {
+        latitude: 38.5816,
+        longitude: -121.4944,
+      };
+      
+      var server_position = null;
+      {% if 'latitude' in config['mesh'] and 'longitude'in config['mesh'] %}
+        server_position = {
+          latitude: {{ config['mesh']['latitude'] }},
+          longitude: {{ config['mesh']['longitude'] }}
+        };
+      {% else %}
+        server_position = default_position;
+      {% endif %}
+
+      var server_zoom = null;
+      {% if 'zoom' in config['mesh'] %}
+        server_zoom = {{ config['mesh']['zoom'] }};
+      {% else %}
+        server_zoom = 9.5;
+      {% endif %}
+
+      map = new Map({
+        target: 'map',
+        layers: [
+          new TileLayer({
+            source: new OSM()
+          })
+        ],
+        view: new View({
+          center: fromLonLat([server_position.longitude, server_position.latitude]),
+          zoom: server_zoom
+        })
+      });
+
+      // Create nodes layer
+      nodesLayer = new VectorLayer({
+        source: new VectorSource(),
+        style: function(feature) {
+          return feature.getStyle() || null;
+        },
+        zIndex: 2
+      });
+      map.addLayer(nodesLayer);
+
+      // Create position change layer for tracking movement
+      positionChangeLayer = new VectorLayer({
+        source: new VectorSource(),
+        style: new Style({
+          stroke: new Stroke({
+            color: 'rgba(0, 128, 128, 0.8)', // Teal color
+            width: 1
+          })
+        }),
+        zIndex: 1 // Below nodes layer
+      });
+      map.addLayer(positionChangeLayer);
+
+      // Initialize settings panel
+      initializeSettingsPanel();
+      
+      // Initialize event handlers
+      initializeEventHandlers();
+      
+      // Load initial data
+      loadMapData();
+    }
+
+    // Initialize settings panel
+    function initializeSettingsPanel() {
+      const settingsToggle = document.getElementById('settingsToggle');
+      const settingsPanel = document.getElementById('settings');
+      
+      // Initialize settings UI with proper value setting
+      const neighboursMaxDistanceElement = document.getElementById('neighboursMaxDistance');
+      
+      // Force set the value and trigger input event to ensure it's displayed
+      console.log('Setting neighboursMaxDistance to:', settings.neighboursMaxDistance);
+      neighboursMaxDistanceElement.value = settings.neighboursMaxDistance;
+      neighboursMaxDistanceElement.dispatchEvent(new Event('input', { bubbles: true }));
+      console.log('Element value after setting:', neighboursMaxDistanceElement.value);
+      
+      document.getElementById('nodesMaxAge').value = settings.nodesMaxAge;
+      document.getElementById('nodesDisconnectedAge').value = settings.nodesDisconnectedAge;
+      document.getElementById('nodesOfflineAge').value = settings.nodesOfflineAge;
+      document.getElementById('channelFilter').value = settings.channelFilter;
+      document.getElementById('autoRefresh').value = settings.autoRefresh;
+      
+      // Ensure the neighbours max distance value is set (fallback for timing issues)
+      setTimeout(() => {
+        if (neighboursMaxDistanceElement.value !== settings.neighboursMaxDistance) {
+          neighboursMaxDistanceElement.value = settings.neighboursMaxDistance;
+          neighboursMaxDistanceElement.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      }, 100);
+
+      // Settings panel visibility
+      let settingsPanelVisible = localStorage.getItem('settingsPanelVisible') === 'true';
+      settingsPanel.style.display = settingsPanelVisible ? 'block' : 'none';
+
+      settingsToggle.addEventListener('click', () => {
+        settingsPanelVisible = !settingsPanelVisible;
+        settingsPanel.style.display = settingsPanelVisible ? 'block' : 'none';
+        localStorage.setItem('settingsPanelVisible', settingsPanelVisible);
+      });
+      
+      // Close settings panel when clicking outside of it
+      document.addEventListener('click', (event) => {
+        if (settingsPanelVisible && 
+            !settingsPanel.contains(event.target) && 
+            !settingsToggle.contains(event.target)) {
+          settingsPanelVisible = false;
+          settingsPanel.style.display = 'none';
+          localStorage.setItem('settingsPanelVisible', settingsPanelVisible);
+        }
+      });
+
+      // Settings change handlers
+      document.getElementById('nodesMaxAge').addEventListener('change', function(e) {
+        settings.nodesMaxAge = e.target.value;
+        localStorage.setItem('nodesMaxAge', e.target.value);
+        loadMapData();
+      });
+
+      document.getElementById('nodesDisconnectedAge').addEventListener('change', function(e) {
+        settings.nodesDisconnectedAge = e.target.value;
+        localStorage.setItem('nodesDisconnectedAge', e.target.value);
+        loadMapData();
+      });
+
+      document.getElementById('nodesOfflineAge').addEventListener('change', function(e) {
+        settings.nodesOfflineAge = e.target.value;
+        localStorage.setItem('nodesOfflineAge', e.target.value);
+        loadMapData();
+      });
+
+      document.getElementById('neighboursMaxDistance').addEventListener('change', function(e) {
+        settings.neighboursMaxDistance = e.target.value;
+        localStorage.setItem('neighboursMaxDistance', e.target.value);
+        loadMapData();
+      });
+
+      document.getElementById('channelFilter').addEventListener('change', function(e) {
+        settings.channelFilter = e.target.value;
+        localStorage.setItem('channelFilter', e.target.value);
+        loadMapData();
+      });
+
+      document.getElementById('autoRefresh').addEventListener('change', function(e) {
+        settings.autoRefresh = e.target.value;
+        localStorage.setItem('autoRefresh', e.target.value);
+        setupAutoRefresh();
+      });
+
+      // Setup initial auto-refresh
+      setupAutoRefresh();
+    }
+
+    // Setup auto-refresh
+    function setupAutoRefresh() {
+      if (refreshInterval) {
+        clearInterval(refreshInterval);
+        refreshInterval = null;
+      }
+
+      const refreshSeconds = parseInt(settings.autoRefresh);
+      if (refreshSeconds > 0) {
+        refreshInterval = setInterval(() => {
+          loadMapData(true); // Pass true for auto-refresh
+        }, refreshSeconds * 1000);
+      }
+    }
+
+    // Load map data from API
+    async function loadMapData(isAutoRefresh = false) {
+      // Ensure nodeMovementHistory is properly initialized
+      ensureNodeMovementHistory();
+      
+      // Show loading state - different for initial load vs auto-refresh
+      let loadingDiv;
+      if (isAutoRefresh) {
+        // Small animated spinner in bottom left for auto-refresh
+        loadingDiv = document.createElement('div');
+        loadingDiv.id = 'map-loading';
+        loadingDiv.innerHTML = '<div class="text-center p-2"><div class="custom-spinner"></div></div>';
+        loadingDiv.style.cssText = 'position: absolute; bottom: 20px; left: 20px; background: white; border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.15); z-index: 1001; font-size: 14px;';
+        document.getElementById('map').appendChild(loadingDiv);
+      } else {
+        // Full loading overlay for initial load
+        loadingDiv = document.createElement('div');
+        loadingDiv.id = 'map-loading';
+        loadingDiv.innerHTML = '<div class="text-center p-3"><div class="custom-spinner-large"></div><div class="mt-2">Loading map data...</div></div>';
+        loadingDiv.style.cssText = 'position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); z-index: 1001;';
+        document.getElementById('map').appendChild(loadingDiv);
+      }
+      
+      try {
+        const params = new URLSearchParams({
+          nodes_max_age: settings.nodesMaxAge,
+          nodes_disconnected_age: settings.nodesDisconnectedAge,
+          nodes_offline_age: settings.nodesOfflineAge,
+          channel_filter: settings.channelFilter,
+          neighbours_max_distance: settings.neighboursMaxDistance
+        });
+
+        const response = await fetch(`/api/map-data?${params}`);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        if (data.error) {
+          throw new Error(data.error);
+        }
+
+        // Track new nodes for auto-refresh glow effect
+        const previousNodeIds = new Set(Object.keys(nodes));
+        const newNodes = [];
+        
+        // Track position changes for auto-refresh
+        const positionChanges = [];
+        if (isAutoRefresh) {
+          Object.keys(data.nodes).forEach(nodeId => {
+            const newNode = data.nodes[nodeId];
+            const oldNode = nodes[nodeId];
+            
+            // Check if node has valid position data
+            if (newNode.position && Array.isArray(newNode.position) && 
+                newNode.position[0] !== null && newNode.position[1] !== null &&
+                !isNaN(newNode.position[0]) && !isNaN(newNode.position[1])) {
+              
+              // Check if we have previous position data for this node
+              if (oldNode && oldNode.position && Array.isArray(oldNode.position) &&
+                  oldNode.position[0] !== null && oldNode.position[1] !== null &&
+                  !isNaN(oldNode.position[0]) && !isNaN(oldNode.position[1])) {
+                
+                // Check if position has changed (with small tolerance for floating point precision)
+                const latDiff = Math.abs(newNode.position[1] - oldNode.position[1]);
+                const lonDiff = Math.abs(newNode.position[0] - oldNode.position[0]);
+                
+                if (latDiff > 0.000001 || lonDiff > 0.000001) {
+                  positionChanges.push({
+                    nodeId: nodeId,
+                    oldPosition: oldNode.position,
+                    newPosition: newNode.position
+                  });
+                }
+              }
+            }
+          });
+        }
+        
+        // Update global nodes data
+        nodes = data.nodes;
+        
+        // Find new nodes that appeared in this refresh
+        if (isAutoRefresh) {
+          Object.keys(nodes).forEach(nodeId => {
+            if (!previousNodeIds.has(nodeId)) {
+              newNodes.push(nodeId);
+            }
+          });
+        }
+        
+        // Detect nodes that came back online
+        const backOnlineNodes = [];
+        const movingNodes = [];
+        
+        if (isAutoRefresh) {
+          Object.keys(nodes).forEach(nodeId => {
+            const node = nodes[nodeId];
+            const wasOffline = offlineNodes.has(nodeId);
+            const isNowOnline = !node.show_as_offline;
+            
+            // If node was offline and is now online, add to back online list
+            if (wasOffline && isNowOnline) {
+              backOnlineNodes.push(nodeId);
+              offlineNodes.delete(nodeId); // Remove from offline tracking
+            }
+            // If node is now offline, add to offline tracking
+            else if (!wasOffline && node.show_as_offline) {
+              offlineNodes.add(nodeId);
+            }
+            
+            // Track movement patterns
+            if (node.position && Array.isArray(node.position) && 
+                node.position[0] !== null && node.position[1] !== null &&
+                !isNaN(node.position[0]) && !isNaN(node.position[1])) {
+              
+              const currentPos = [node.position[0], node.position[1]];
+              const now = Date.now();
+              
+                            // Ensure nodeMovementHistory is valid and initialize if needed
+              const movementHistory = ensureNodeMovementHistory();
+              
+              // Initialize history for this node if it doesn't exist
+              if (!movementHistory[nodeId]) {
+                movementHistory[nodeId] = [];
+              }
+              
+              // Get the history array for this node
+              const history = movementHistory[nodeId];
+              if (!Array.isArray(history)) {
+                console.warn('History is not an array, reinitializing for node:', nodeId);
+                movementHistory[nodeId] = [];
+              }
+              const lastEntry = history.length > 0 ? history[history.length - 1] : null;
+              
+              // Check if position has changed significantly (more than 10 meters)
+              const hasChanged = !lastEntry || 
+                Math.abs(currentPos[0] - lastEntry.position[0]) > 0.0001 || 
+                Math.abs(currentPos[1] - lastEntry.position[1]) > 0.0001;
+              
+              if (hasChanged) {
+                // Add new position to history
+                history.push({
+                  position: currentPos,
+                  timestamp: now
+                });
+                
+                // Keep only last 10 positions to prevent memory bloat
+                if (history.length > 10) {
+                  history.shift();
+                }
+                
+                // Check if node is "on the move" (3+ different positions without returning)
+                if (history.length >= 3) {
+                  const uniquePositions = new Set();
+                  history.forEach(entry => {
+                    uniquePositions.add(`${entry.position[0].toFixed(6)},${entry.position[1].toFixed(6)}`);
+                  });
+                  
+                  // If we have 3+ unique positions, node is moving
+                  if (uniquePositions.size >= 3) {
+                    // Check if we haven't already notified about this movement
+                    const notificationKey = nodeId + '_notified';
+                    const lastNotification = movementHistory[notificationKey];
+                    if (!lastNotification || (now - lastNotification) > 300000) { // 5 minutes between notifications
+                      movingNodes.push(nodeId);
+                      movementHistory[notificationKey] = now;
+                    }
+                  }
+                }
+              }
+            }
+          });
+        }
+        
+        // Update map with new data
+        updateMapNodes();
+        
+        // Draw position change lines
+        if (isAutoRefresh && positionChanges.length > 0) {
+          drawPositionChangeLines(positionChanges);
+        }
+        
+        // Apply glow animation to new nodes (after map update to ensure features exist)
+        if (isAutoRefresh && newNodes.length > 0) {
+          // Small delay to ensure features are properly created
+          setTimeout(() => {
+            applyGlowToNewNodes(newNodes);
+          }, 100);
+        }
+        
+        // Show toast for nodes that came back online
+        if (isAutoRefresh && backOnlineNodes.length > 0) {
+          showBackOnlineToast(backOnlineNodes);
+        }
+        
+        // Show toast for nodes that are on the move
+        if (isAutoRefresh && movingNodes.length > 0) {
+          showMovingNodesToast(movingNodes);
+        }
+        
+        console.log(`Loaded ${Object.keys(nodes).length} nodes from API${isAutoRefresh ? ` (${newNodes.length} new)` : ''}`);
+        
+        // Handle URL parameter for auto-selecting node (only on initial load)
+        if (!isAutoRefresh) {
+          handleUrlNodeSelection();
+        }
+        
+      } catch (error) {
+        console.error('Error loading map data:', error);
+        // Show error to user
+        const errorDiv = document.createElement('div');
+        errorDiv.style.cssText = 'position: fixed; top: 10px; left: 50%; transform: translateX(-50%); background: #f8d7da; color: #721c24; padding: 10px; border-radius: 5px; z-index: 10000;';
+        errorDiv.textContent = `Error loading map data: ${error.message}`;
+        document.body.appendChild(errorDiv);
+        setTimeout(() => errorDiv.remove(), 5000);
+      } finally {
+        // Remove loading state
+        const loadingElement = document.getElementById('map-loading');
+        if (loadingElement) loadingElement.remove();
+      }
+    }
+
+    // Handle URL parameter for auto-selecting node
+    function handleUrlNodeSelection() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const selectedNodeId = urlParams.get('node');
+      
+      if (selectedNodeId && nodes[selectedNodeId]) {
+        // Wait for the map to be fully loaded
+        setTimeout(() => {
+          const features = nodesLayer.getSource().getFeatures();
+          const targetFeature = features.find(f => {
+            const node = f.getProperties().node;
+            return node && node.id === selectedNodeId;
+          });
+          
+          if (targetFeature) {
+            const node = targetFeature.getProperties().node;
+            
+            // Center the map on the node first
+            map.getView().animate({
+              center: targetFeature.getGeometry().getCoordinates(),
+              zoom: 15,
+              duration: 1000
+            });
+            
+            // Then trigger the node selection logic
+            setTimeout(() => {
+              showNodeDetails(node);
+            }, 1200); // Wait for zoom animation to complete
+          }
+        }, 1000); // Wait for layout to complete
+      }
+    }
+
+    // Apply glow animation to new nodes
+    function applyGlowToNewNodes(newNodeIds) {
+      const source = nodesLayer.getSource();
+      const features = source.getFeatures();
+      
+      // Show toast notification for new nodes
+      if (newNodeIds.length > 0) {
+        showNewNodesToast(newNodeIds);
+      }
+      
+      newNodeIds.forEach(nodeId => {
+        const feature = features.find(f => {
+          const node = f.getProperties().node;
+          return node && node.id === nodeId;
+        });
+        
+        if (feature) {
+          // Create a glowing style
+          const glowStyle = new Style({
+            image: new Circle({
+              radius: 12,
+              fill: new Fill({
+                color: 'rgba(255, 255, 0, 0.3)'
+              }),
+              stroke: new Stroke({
+                color: 'rgba(255, 255, 0, 0.8)',
+                width: 3
+              })
+            })
+          });
+          
+          // Apply the glow style
+          feature.setStyle(glowStyle);
+          
+          // Remove glow after 15 seconds
+          setTimeout(() => {
+            const normalStyle = getNodeStyle(feature.getProperties().node);
+            feature.setStyle(normalStyle);
+          }, 15000);
+        } else {
+          // If feature not found, try again after a short delay
+          console.log(`Feature not found for node ${nodeId}, retrying...`);
+          setTimeout(() => {
+            const retryFeatures = source.getFeatures();
+            const retryFeature = retryFeatures.find(f => {
+              const node = f.getProperties().node;
+              return node && node.id === nodeId;
+            });
+            
+            if (retryFeature) {
+              const glowStyle = new Style({
+                image: new Circle({
+                  radius: 12,
+                  fill: new Fill({
+                    color: 'rgba(255, 255, 0, 0.3)'
+                  }),
+                  stroke: new Stroke({
+                    color: 'rgba(255, 255, 0, 0.8)',
+                    width: 3
+                  })
+                })
+              });
+              
+              retryFeature.setStyle(glowStyle);
+              
+              setTimeout(() => {
+                const normalStyle = getNodeStyle(retryFeature.getProperties().node);
+                retryFeature.setStyle(normalStyle);
+              }, 15000);
+            }
+          }, 200);
+        }
+      });
+    }
+
+    // Helper function to fade out and remove toast
+    function fadeOutToast(toast) {
+      toast.classList.add('toast-fade-out');
+      
+      // Remove from DOM after animation completes
+      setTimeout(() => {
+        if (toast.parentNode) {
+          toast.parentNode.removeChild(toast);
+        }
+      }, 500);
+    }
+
+    // Show toast notification for nodes that are on the move
+    function showMovingNodesToast(movingNodeIds) {
+      // Create toast container if it doesn't exist
+      let toastContainer = document.getElementById('toast-container');
+      if (!toastContainer) {
+        toastContainer = document.createElement('div');
+        toastContainer.id = 'toast-container';
+        toastContainer.style.cssText = 'position: fixed; bottom: 20px; left: 20px; z-index: 10000;';
+        document.body.appendChild(toastContainer);
+      }
+      
+      // Create individual toast for each moving node
+      movingNodeIds.forEach((nodeId, index) => {
+        const node = nodes[nodeId];
+        const nodeName = node ? (node.short_name || node.id) : nodeId;
+        
+        // Create toast element
+        const toast = document.createElement('div');
+        toast.style.cssText = `
+          background: #FF8C00;
+          color: white;
+          padding: 12px 16px;
+          border-radius: 6px;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+          margin-bottom: 8px;
+          font-size: 14px;
+          font-weight: 500;
+          max-width: 300px;
+          word-wrap: break-word;
+          cursor: pointer;
+          transition: background-color 0.2s ease, opacity 0.5s ease-out, transform 0.5s ease-out;
+        `;
+        
+        // Create message for individual node
+        const message = `🚗 ${nodeName} is on the move`;
+        toast.textContent = message;
+        
+        // Add hover effect
+        toast.addEventListener('mouseenter', () => {
+          toast.style.backgroundColor = '#E67E00';
+        });
+        
+        toast.addEventListener('mouseleave', () => {
+          toast.style.backgroundColor = '#FF8C00';
+        });
+        
+        // Add click handler for individual node
+        toast.addEventListener('click', () => {
+          // Remove the toast immediately
+          if (toast.parentNode) {
+            toast.parentNode.removeChild(toast);
+          }
+          
+          // Zoom to this specific node
+          if (node && node.position && Array.isArray(node.position) &&
+              node.position[0] !== null && node.position[1] !== null) {
+            
+            // Find the feature for this node
+            const source = nodesLayer.getSource();
+            const features = source.getFeatures();
+            const targetFeature = features.find(f => {
+              const featureNode = f.getProperties().node;
+              return featureNode && featureNode.id === nodeId;
+            });
+            
+            if (targetFeature) {
+              // Animate to the node position
+              map.getView().animate({
+                center: targetFeature.getGeometry().getCoordinates(),
+                zoom: 15,
+                duration: 1000
+              });
+            }
+          }
+        });
+        
+        // Add to container with staggered delay
+        setTimeout(() => {
+          toastContainer.appendChild(toast);
+        }, index * 200); // Stagger toasts by 200ms each
+        
+        // Set up toast removal with hover pause functionality
+        let removalTimeout;
+        let isHovering = false;
+        
+        const scheduleRemoval = () => {
+          removalTimeout = setTimeout(() => {
+            if (toast.parentNode && !isHovering) {
+              toast.parentNode.removeChild(toast);
+            }
+          }, 15000 + (index * 200)); // 15 seconds + stagger
+        };
+        
+        // Start the removal timer
+        scheduleRemoval();
+        
+        // Pause timer on hover
+        toast.addEventListener('mouseenter', () => {
+          isHovering = true;
+          if (removalTimeout) {
+            clearTimeout(removalTimeout);
+          }
+        });
+        
+        // Resume timer when mouse leaves
+        toast.addEventListener('mouseleave', () => {
+          isHovering = false;
+          scheduleRemoval();
+        });
+      });
+    }
+
+    // Show toast notification for nodes that came back online
+    function showBackOnlineToast(backOnlineNodeIds) {
+      // Create toast container if it doesn't exist
+      let toastContainer = document.getElementById('toast-container');
+      if (!toastContainer) {
+        toastContainer = document.createElement('div');
+        toastContainer.id = 'toast-container';
+        toastContainer.style.cssText = 'position: fixed; bottom: 20px; left: 20px; z-index: 10000;';
+        document.body.appendChild(toastContainer);
+      }
+      
+      // Create individual toast for each node that came back online
+      backOnlineNodeIds.forEach((nodeId, index) => {
+        const node = nodes[nodeId];
+        const nodeName = node ? (node.short_name || node.id) : nodeId;
+        
+        // Create toast element
+        const toast = document.createElement('div');
+        toast.style.cssText = `
+          background: #17a2b8;
+          color: white;
+          padding: 12px 16px;
+          border-radius: 6px;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+          margin-bottom: 8px;
+          font-size: 14px;
+          font-weight: 500;
+          max-width: 300px;
+          word-wrap: break-word;
+          cursor: pointer;
+          transition: background-color 0.2s ease;
+        `;
+        
+        // Create message for individual node
+        const message = `🟢 ${nodeName} is back online`;
+        toast.textContent = message;
+        
+        // Add hover effect
+        toast.addEventListener('mouseenter', () => {
+          toast.style.backgroundColor = '#138496';
+        });
+        
+        toast.addEventListener('mouseleave', () => {
+          toast.style.backgroundColor = '#17a2b8';
+        });
+        
+        // Add click handler for individual node
+        toast.addEventListener('click', () => {
+          // Remove the toast immediately
+          if (toast.parentNode) {
+            toast.parentNode.removeChild(toast);
+          }
+          
+          // Zoom to this specific node
+          if (node && node.position && Array.isArray(node.position) &&
+              node.position[0] !== null && node.position[1] !== null) {
+            
+            // Find the feature for this node
+            const source = nodesLayer.getSource();
+            const features = source.getFeatures();
+            const targetFeature = features.find(f => {
+              const featureNode = f.getProperties().node;
+              return featureNode && featureNode.id === nodeId;
+            });
+            
+            if (targetFeature) {
+              // Animate to the node position
+              map.getView().animate({
+                center: targetFeature.getGeometry().getCoordinates(),
+                zoom: 15,
+                duration: 1000
+              });
+            }
+          }
+        });
+        
+        // Add to container with staggered delay
+        setTimeout(() => {
+          toastContainer.appendChild(toast);
+        }, index * 200); // Stagger toasts by 200ms each
+        
+        // Set up toast removal with hover pause functionality
+        let removalTimeout;
+        let isHovering = false;
+        
+        const scheduleRemoval = () => {
+          removalTimeout = setTimeout(() => {
+            if (toast.parentNode && !isHovering) {
+              toast.parentNode.removeChild(toast);
+            }
+          }, 15000 + (index * 200)); // 15 seconds + stagger
+        };
+        
+        // Start the removal timer
+        scheduleRemoval();
+        
+        // Pause timer on hover
+        toast.addEventListener('mouseenter', () => {
+          isHovering = true;
+          if (removalTimeout) {
+            clearTimeout(removalTimeout);
+          }
+        });
+        
+        // Resume timer when mouse leaves
+        toast.addEventListener('mouseleave', () => {
+          isHovering = false;
+          scheduleRemoval();
+        });
+      });
+    }
+
+    // Show toast notification for new nodes
+    function showNewNodesToast(newNodeIds) {
+      // Create toast container if it doesn't exist
+      let toastContainer = document.getElementById('toast-container');
+      if (!toastContainer) {
+        toastContainer = document.createElement('div');
+        toastContainer.id = 'toast-container';
+        toastContainer.style.cssText = 'position: fixed; bottom: 20px; left: 20px; z-index: 10000;';
+        document.body.appendChild(toastContainer);
+      }
+      
+      // Create individual toast for each new node
+      newNodeIds.forEach((nodeId, index) => {
+        const node = nodes[nodeId];
+        const nodeName = node ? (node.short_name || node.id) : nodeId;
+        
+        // Create toast element
+        const toast = document.createElement('div');
+        toast.style.cssText = `
+          background: #28a745;
+          color: white;
+          padding: 12px 16px;
+          border-radius: 6px;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+          margin-bottom: 8px;
+          font-size: 14px;
+          font-weight: 500;
+          max-width: 300px;
+          word-wrap: break-word;
+          cursor: pointer;
+          transition: background-color 0.2s ease;
+        `;
+        
+        // Create message for individual node
+        const message = `🆕 New node: ${nodeName}`;
+        toast.textContent = message;
+        
+        // Add hover effect
+        toast.addEventListener('mouseenter', () => {
+          toast.style.backgroundColor = '#218838';
+        });
+        
+        toast.addEventListener('mouseleave', () => {
+          toast.style.backgroundColor = '#28a745';
+        });
+        
+        // Add click handler for individual node
+        toast.addEventListener('click', () => {
+          // Remove the toast immediately
+          if (toast.parentNode) {
+            toast.parentNode.removeChild(toast);
+          }
+          
+          // Zoom to this specific node
+          if (node && node.position && Array.isArray(node.position) &&
+              node.position[0] !== null && node.position[1] !== null) {
+            
+            // Find the feature for this node
+            const source = nodesLayer.getSource();
+            const features = source.getFeatures();
+            const targetFeature = features.find(f => {
+              const featureNode = f.getProperties().node;
+              return featureNode && featureNode.id === nodeId;
+            });
+            
+            if (targetFeature) {
+              // Animate to the node position
+              map.getView().animate({
+                center: targetFeature.getGeometry().getCoordinates(),
+                zoom: 15,
+                duration: 1000
+              });
+            }
+          }
+        });
+        
+        // Add to container with staggered delay
+        setTimeout(() => {
+          toastContainer.appendChild(toast);
+        }, index * 200); // Stagger toasts by 200ms each
+        
+        // Set up toast removal with hover pause functionality
+        let removalTimeout;
+        let isHovering = false;
+        
+        const scheduleRemoval = () => {
+          removalTimeout = setTimeout(() => {
+            if (toast.parentNode && !isHovering) {
+              toast.parentNode.removeChild(toast);
+            }
+          }, 15000 + (index * 200)); // 15 seconds + stagger
+        };
+        
+        // Start the removal timer
+        scheduleRemoval();
+        
+        // Pause timer on hover
+        toast.addEventListener('mouseenter', () => {
+          isHovering = true;
+          if (removalTimeout) {
+            clearTimeout(removalTimeout);
+          }
+        });
+        
+        // Resume timer when mouse leaves
+        toast.addEventListener('mouseleave', () => {
+          isHovering = false;
+          scheduleRemoval();
+        });
+      });
+    }
+
+    // Draw position change lines
+    function drawPositionChangeLines(positionChanges) {
+      const source = positionChangeLayer.getSource();
+      const currentTime = new Date();
+      
+      positionChanges.forEach(change => {
+        // Create line geometry from old to new position
+        const lineGeometry = new LineString([
+          fromLonLat(change.oldPosition),
+          fromLonLat(change.newPosition)
+        ]);
+        
+        // Create feature for the line with timestamp data
+        const lineFeature = new Feature({
+          geometry: lineGeometry,
+          positionChangeData: {
+            nodeId: change.nodeId,
+            nodeName: nodes[change.nodeId] ? (nodes[change.nodeId].short_name || nodes[change.nodeId].id) : change.nodeId,
+            timestamp: currentTime,
+            oldPosition: change.oldPosition,
+            newPosition: change.newPosition
+          }
+        });
+        
+        // Apply a wider stroke style for better touch targets on mobile
+        lineFeature.setStyle(new Style({
+          stroke: new Stroke({
+            color: '#20B2AA', // Teal color
+            width: 4 // Wider stroke for better touch targets
+          })
+        }));
+        
+        // Add line to the layer
+        source.addFeature(lineFeature);
+        
+        // Remove the line after 1 hour
+        setTimeout(() => {
+          source.removeFeature(lineFeature);
+        }, 3600000);
+      });
+      
+      console.log(`Drew ${positionChanges.length} position change lines`);
+    }
+
+    // Update map nodes
+    function updateMapNodes() {
+      const source = nodesLayer.getSource();
+      source.clear();
+
+      const features = [];
+      const positionMap = new Map();
+
+      Object.values(nodes).forEach(function(node) {
+        // Only add features for nodes with valid lat/lon
+        if (
+          node.position &&
+          Array.isArray(node.position) &&
+          node.position[0] !== null &&
+          node.position[1] !== null &&
+          !isNaN(node.position[0]) &&
+          !isNaN(node.position[1]) &&
+          node.position[0] >= -180 && node.position[0] <= 180 &&
+          node.position[1] >= -90 && node.position[1] <= 90
+        ) {
+          const posKey = node.position.join(',');
+          const offset = positionMap.get(posKey) || 0;
+          
+          // Create slightly offset coordinates if this position was seen before
+          let offsetCoords = [...node.position];
+          if (offset > 0) {
+            offsetCoords[0] += 0.0001;
+            offsetCoords[1] += 0.0001;
+          }
+          
+          const feature = new Feature({
+            geometry: new Point(fromLonLat(offsetCoords)),
+            node: node,
+          });
+
+          // Apply style based on node status
+          const style = getNodeStyle(node);
+          feature.setStyle(style);
+          features.push(feature);
+          positionMap.set(posKey, offset + 1);
+        }
+      });
+
+      source.addFeatures(features);
+    }
+
+    // Get node style based on status
+    function getNodeStyle(node) {
+      const now = Math.floor(Date.now() / 1000);
+      
+      // Check MQTT uplink status first
+      if (node.ts_uplink !== null) {
+        const disconnectedAge = parseInt(settings.nodesDisconnectedAge);
+        const lastUplink = node.ts_uplink;
+        if (now - lastUplink <= disconnectedAge) {
+          // Node has active MQTT uplink - show as blue
+          return new Style({
+            image: new Circle({
+              radius: 6,
+              fill: new Fill({
+                color: 'rgba(33, 150, 243, 1)'
+              }),
+              stroke: new Stroke({
+                color: 'white',
+                width: 2
+              })
+            })
+          });
+        }
+      }
+
+      // Check offline status
+      if (node.show_as_offline) {
+        return new Style({
+          image: new Circle({
+            radius: 6,
+            fill: new Fill({
+              color: 'rgba(0, 0, 0, 0.50)'
+            }),
+            stroke: new Stroke({
+              color: 'white',
+              width: 2
+            })
+          })
+        });
+      }
+
+      // Default online style
+      return new Style({
+        image: new Circle({
+          radius: 6,
+          fill: new Fill({
+            color: 'rgba(50, 240, 50, 1)'
+          }),
+          stroke: new Stroke({
+            color: 'white',
+            width: 2
+          })
+        })
+      });
+    }
+
+    // Initialize event handlers
+    function initializeEventHandlers() {
+      // Node click handler
+      map.on('singleclick', async function (event) {
+        handleNodeClick(event);
+      });
+
+      // Popup closer
+      const closer = document.getElementById('popup-closer');
+      closer.onclick = function() {
+        clearNodeSelection();
+        return false;
+      };
+    }
+
+    // Handle node click
+    async function handleNodeClick(event) {
+      clearNodeSelection();
+
+      if (map.hasFeatureAtPixel(event.pixel)) {
+        var feature = map.forEachFeatureAtPixel(event.pixel, function(feature) {
+          return feature;
+        });
+        
+        if (feature) {
+          var properties = feature.getProperties();
+          
+          // Check if this is a position change line
+          if (properties.positionChangeData) {
+            showPositionChangeInfo(properties.positionChangeData);
+          } else if (properties.node) {
+            // This is a node feature
+            await showNodeDetails(properties.node);
+          }
+        }
+      }
+    }
+
+    // Clear node selection
+    function clearNodeSelection() {
+      neighborLayers.forEach(function(layer) {
+        map.removeLayer(layer);
+      });
+      neighborLayers = [];
+
+      // Hide node info panel
+      $('#details').hide();
+      document.getElementById('details-title').innerHTML = '';
+      document.getElementById('details-subtitle').innerHTML = '';
+      document.getElementById('details-content').innerHTML = '';
+    }
+
+    // Show position change info
+    function showPositionChangeInfo(positionChangeData) {
+      // Close settings panel when opening position change info
+      const settingsPanel = document.getElementById('settings');
+      let settingsPanelVisible = localStorage.getItem('settingsPanelVisible') === 'true';
+      if (settingsPanelVisible) {
+        settingsPanelVisible = false;
+        settingsPanel.style.display = 'none';
+        localStorage.setItem('settingsPanelVisible', settingsPanelVisible);
+      }
+
+      const timeAgo = (timestamp) => {
+        const seconds = Math.floor((Date.now() - timestamp.getTime()) / 1000);
+        if (seconds < 60) return seconds + "s ago";
+        if (seconds < 3600) return Math.floor(seconds/60) + "m ago";
+        if (seconds < 86400) return Math.floor(seconds/3600) + "h ago";
+        return Math.floor(seconds/86400) + "d ago";
+      };
+
+      const calculateDistance = (pos1, pos2) => {
+        if (!pos1 || !pos2) return null;
+        return Math.sqrt(
+          Math.pow(pos1[0] - pos2[0], 2) +
+          Math.pow(pos1[1] - pos2[1], 2)
+        ) * 111.32;
+      };
+
+      const distance = calculateDistance(positionChangeData.oldPosition, positionChangeData.newPosition);
+      
+      const panel = `
+        <div style="position: relative; margin-bottom: 16px">
+          <div class="fw-bold fs-5 mb-2">🔄 Position Change</div>
+          <div class="fw-bold fs-6 text-primary mb-3">${positionChangeData.nodeName}</div>
+        </div>
+        <div class="small">
+          <div class="mb-2"><i class="text-muted">Drawn:</i> ${timeAgo(positionChangeData.timestamp)}</div>
+          <div class="mb-2"><i class="text-muted">Distance:</i> ${distance ? distance.toFixed(2) + ' km' : 'Unknown'}</div>
+          <div class="mb-2"><i class="text-muted">From:</i> ${positionChangeData.oldPosition[1].toFixed(6)}, ${positionChangeData.oldPosition[0].toFixed(6)}</div>
+          <div class="mb-2"><i class="text-muted">To:</i> ${positionChangeData.newPosition[1].toFixed(6)}, ${positionChangeData.newPosition[0].toFixed(6)}</div>
+          <div class="mb-2"><i class="text-muted">Line expires:</i> In ${Math.floor((3600000 - (Date.now() - positionChangeData.timestamp.getTime())) / 1000 / 60)} minutes</div>
+        </div>
+      `;
+      
+      document.getElementById('details-content').innerHTML = panel;
+      $('#details').show();
+    }
+
+    // Show node details
+    async function showNodeDetails(node) {
+      // Close settings panel when opening node details
+      const settingsPanel = document.getElementById('settings');
+      let settingsPanelVisible = localStorage.getItem('settingsPanelVisible') === 'true';
+      if (settingsPanelVisible) {
+        settingsPanelVisible = false;
+        settingsPanel.style.display = 'none';
+        localStorage.setItem('settingsPanelVisible', settingsPanelVisible);
+      }
+
+      // Get location info
+      const address = await reverseGeocode(node.position[0], node.position[1]);
+      const display_name = address && address.address ? 
+        [address.address.town, address.address.city, address.address.county, address.address.state, address.address.country].filter(Boolean).join(', ') || address.display_name || 'Unknown location' :
+        'Unknown location';
+
+      // Build node info panel
+      const panel = buildNodeInfoPanel(node, display_name);
+      document.getElementById('details-content').innerHTML = panel;
+      $('#details').show();
+
+      // Draw connections
+      drawNodeConnections(node);
+    }
+
+    // Build node info panel
+    function buildNodeInfoPanel(node, location) {
+      const timeAgo = (timestamp) => {
+        const now = Math.floor(Date.now() / 1000);
+        const seconds = now - timestamp;
+        
+        // Handle future timestamps or invalid data
+        if (seconds < 0 || timestamp > now + 86400) {
+          return "Invalid time";
+        }
+        
+        if (seconds < 60) return seconds + "s ago";
+        if (seconds < 3600) return Math.floor(seconds/60) + "m ago";
+        if (seconds < 86400) return Math.floor(seconds/3600) + "h ago";
+        return Math.floor(seconds/86400) + "d ago";
+      };
+
+      let panel = '<div style="position: relative; margin-bottom: 12px">'
+        + '<span title="' + (node.online ? 'Online' : 'Offline') + '" style="position: absolute; top: 0; right: 0; font-size: 1.5em">' 
+        + (node.online ? '🟢' : '⚫') + '</span>'
+        + '<div class="fw-bold"><a href="node_' + node.id + '.html" target="_blank">' + node.long_name + '</a></div>'
+        + '<div class="text-muted small">' + node.id + ' <span style="font-weight: bold; color: #333;">(' + node.short_name + ')</span></div>'
+        + '</div>'
+        + '<div class="small">'
+        + '<div class="mb-2"><i class="text-muted">Last seen:</i> ' + timeAgo(node.last_seen) + '</div>'
+        + '<div class="mb-2"><i class="text-muted">MQTT Status:</i> ' 
+        + (node.ts_uplink ? 'Connected ' + timeAgo(node.ts_uplink) : 'Not Connected')
+        + '</div>'
+        + '<div class="mb-2"><i class="text-muted">Position:</i> ' + node.position + '</div>'
+        + '<div class="mb-2"><i class="text-muted">Location:</i> ' + location + '</div>'
+        + '<div class="mb-2"><i class="text-muted">Channel:</i> ' + node.channel_name + '</div>';
+
+      // Add additional fields if available
+      if (node.has_default_channel !== null && node.has_default_channel !== undefined) {
+        panel += '<div class="mb-2"><i class="text-muted">Default Channel:</i> ' 
+          + (node.has_default_channel ? '<span style="color: green;">Yes</span>' : '<span style="color: orange;">No</span>')
+          + '</div>';
+      }
+      
+      if (node.num_online_local_nodes !== null && node.num_online_local_nodes !== undefined) {
+        panel += '<div class="mb-2"><i class="text-muted">Local Nodes:</i> ' 
+          + node.num_online_local_nodes + ' nodes</div>';
+      }
+      
+      if (node.region !== null && node.region !== undefined) {
+        const regionNames = {
+          1: 'US (915 MHz)', 2: 'EU (433 MHz)', 3: 'CN (470 MHz)', 4: 'JP (923 MHz)',
+          5: 'ANZ (915 MHz)', 6: 'KR (920 MHz)', 7: 'TW (920 MHz)', 8: 'RU (868 MHz)',
+          9: 'IN (865 MHz)', 10: 'NZ (915 MHz)', 11: 'TH (920 MHz)', 12: 'LORA_24 (2.4 GHz)'
+        };
+        panel += '<div class="mb-2"><i class="text-muted">LoRa Region:</i> ' 
+          + (regionNames[node.region] || 'Unknown (' + node.region + ')') + '</div>';
+      }
+      
+      if (node.modem_preset !== null && node.modem_preset !== undefined) {
+        const modemPresetNames = {
+          0: 'Long Fast', 1: 'Long Slow', 2: 'Very Long Slow', 3: 'Medium Slow',
+          4: 'Medium Fast', 5: 'Short Slow', 6: 'Short Fast', 7: 'Long Moderate', 8: 'Short Turbo'
+        };
+        panel += '<div class="mb-2"><i class="text-muted">Modem Preset:</i> ' 
+          + (modemPresetNames[node.modem_preset] || 'Unknown (' + node.modem_preset + ')') + '</div>';
+      }
+      
+      panel += '</div>';
+
+      // Add connections tables
+      panel += buildConnectionsTable(node, 'Heard (zero hop)', node.zero_hop_data.heard);
+      panel += buildConnectionsTable(node, 'Heard By (zero hop)', node.zero_hop_data.heard_by);
+
+      // Add elsewhere links
+      panel += '<br/><b>Elsewhere</b><br/>';
+      const node_id = parseInt(node.id, 16);
+      panel += '<a href="https://meshtastic.davekeogh.com/?node_id=' + node_id + '" target="_blank">PugetMesh Map</a><br/>';
+      panel += '<a href="https://meshmap.net/#' + node_id + '" target="_blank">MeshMap</a><br/>';
+
+      return panel;
+    }
+
+    // Build connections table
+    function buildConnectionsTable(node, title, connections) {
+      const calculateDistance = (pos1, pos2) => {
+        if (!pos1 || !pos2) return null;
+        return Math.sqrt(
+          Math.pow(pos1[0] - pos2[0], 2) +
+          Math.pow(pos1[1] - pos2[1], 2)
+        ) * 111.32;
+      };
+
+      const timeAgo = (timestamp) => {
+        const now = Math.floor(Date.now() / 1000);
+        const seconds = now - timestamp;
+        
+        // Handle future timestamps or invalid data
+        if (seconds < 0 || timestamp > now + 86400) {
+          return "Invalid time";
+        }
+        
+        if (seconds < 60) return seconds + "s ago";
+        if (seconds < 3600) return Math.floor(seconds/60) + "m ago";
+        if (seconds < 86400) return Math.floor(seconds/3600) + "h ago";
+        return Math.floor(seconds/86400) + "d ago";
+      };
+
+      let table = '<br/><b>' + title + '</b><br/>';
+      table += "<table class='table table-striped table-bordered table-sm'>";
+      table += "<thead><tr><th>Node</th><th>Signal</th><th>Distance</th><th>Source</th></tr></thead>";
+      table += "<tbody>";
+
+      connections.forEach(function(connection) {
+        const connectedNode = nodes[connection.node_id];
+        const distance = connectedNode ? calculateDistance(node.position, connectedNode.position) : null;
+        table += '<tr>';
+        table += '<td>' + (connectedNode ? '<a href="node_' + connection.node_id + '.html">' + connectedNode.short_name + '</a>' : '<span class="text-secondary">UNK</span>') + '</td>';
+        table += '<td>SNR: ' + connection.best_snr + ' max / ' + parseFloat(connection.avg_snr).toFixed(1) + ' avg</td>';
+        table += '<td>' + (distance ? distance.toFixed(2) + ' km' : '') + '</td>';
+        table += '<td><span title="Message data">M</span> (' + connection.count + ') <small title="Last heard ' + new Date(connection.last_rx_time * 1000).toLocaleString() + '">' + timeAgo(connection.last_rx_time) + '</small></td>';
+        table += '</tr>';
+      });
+
+      table += "</tbody></table>";
+      return table;
+    }
+
+    // Reverse geocode function
+    async function reverseGeocode(lon, lat) {
+      try {
+        const response = await fetch('/api/geocode?lon=' + lon + '&lat=' + lat);
+        if (!response.ok) {
+          console.warn('Geocoding API returned error:', response.status);
+          return null;
+        }
+        const json = await response.json();
+        console.log('Geocoding result:', json);
+        return json;
+      } catch (error) {
+        console.warn('Geocoding request failed:', error);
+        return null;
+      }
+    }
+
+    // Draw node connections
+    function drawNodeConnections(node) {
+      const calculateDistance = (pos1, pos2) => {
+        if (!pos1 || !pos2) return null;
+        return Math.sqrt(
+          Math.pow(pos1[0] - pos2[0], 2) +
+          Math.pow(pos1[1] - pos2[1], 2)
+        ) * 111.32;
+      };
+
+      // Draw zero-hop connections
+      if (node.zero_hop_data) {
+        node.zero_hop_data.heard.forEach(function(heard) {
+          const connectedNode = nodes[heard.node_id];
+          if (!connectedNode || !connectedNode.position || !node.position) return;
+          
+          const featureLine = new Feature({
+            geometry: new LineString([
+              fromLonLat(node.position),
+              fromLonLat(connectedNode.position)
+            ])
+          });
+
+          const vectorLine = new VectorSource({});
+          vectorLine.addFeature(featureLine);
+
+          // Use purple if there's a bi-directional connection
+          const isBidirectional = node.zero_hop_data.heard_by.some(h => h.node_id === heard.node_id);
+          const lineStyle = new Style({
+            fill: new Fill({ color: isBidirectional ? '#FF66FF' : '#66FF66', weight: 8 }),
+            stroke: new Stroke({ color: isBidirectional ? '#FF66FF' : '#66FF66', width: 4 }),
+            zIndex: 5
+          });
+
+          const vectorLineLayer = new VectorLayer({
+            source: vectorLine,
+            style: lineStyle
+          });
+          neighborLayers.push(vectorLineLayer);
+          map.addLayer(vectorLineLayer);
+        });
+
+        // Draw lines for heard-by nodes (if not already drawn)
+        node.zero_hop_data.heard_by.forEach(function(heard) {
+          const connectedNode = nodes[heard.node_id];
+          if (!connectedNode || !connectedNode.position || !node.position) return;
+          
+          // Skip if we already drew a line for this connection
+          if (node.zero_hop_data.heard.some(h => h.node_id === heard.node_id)) return;
+          
+          const featureLine = new Feature({
+            geometry: new LineString([
+              fromLonLat(node.position),
+              fromLonLat(connectedNode.position)
+            ])
+          });
+
+          const vectorLine = new VectorSource({});
+          vectorLine.addFeature(featureLine);
+
+          const lineStyle = new Style({
+            fill: new Fill({ color: '#6666FF', weight: 8 }),
+            stroke: new Stroke({ color: '#6666FF', width: 4 }),
+            zIndex: 5
+          });
+
+          const vectorLineLayer = new VectorLayer({
+            source: vectorLine,
+            style: lineStyle
+          });
+          neighborLayers.push(vectorLineLayer);
+          map.addLayer(vectorLineLayer);
+        });
+      }
+    }
+
+
+
+    // Initialize the map
+    initializeMap();
+  </script>
+  <style>
+    #map {
+      height: 100%;
+      width: 100%;
+    }
+    #legend {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      z-index: 1000;
+    }
+    #details {
+      position: absolute;
+      top: 140px;
+      right: 20px;
+      z-index: 1000;
+    }
+    .ol-popup {
+      position: absolute;
+      background-color: white;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+      padding: 15px;
+      border-radius: 10px;
+      border: 1px solid #cccccc;
+      bottom: 12px;
+      left: -50px;
+      min-width: 280px;
+    }
+    .ol-popup:after, .ol-popup:before {
+      top: 100%;
+      border: solid transparent;
+      content: " ";
+      height: 0;
+      width: 0;
+      position: absolute;
+      pointer-events: none;
+    }
+    .ol-popup:after {
+      border-top-color: white;
+      border-width: 10px;
+      left: 48px;
+      margin-left: -10px;
+    }
+    .ol-popup:before {
+      border-top-color: #cccccc;
+      border-width: 11px;
+      left: 48px;
+      margin-left: -11px;
+    }
+    .ol-popup-closer {
+      text-decoration: none;
+      position: absolute;
+      top: 2px;
+      right: 8px;
+    }
+    .ol-popup-closer:after {
+      content: "x";
+    }
+    
+    /* Glow animation for new nodes */
+    @keyframes nodeGlow {
+      0% { 
+        box-shadow: 0 0 5px rgba(255, 255, 0, 0.8);
+        transform: scale(1);
+      }
+      50% { 
+        box-shadow: 0 0 20px rgba(255, 255, 0, 0.9);
+        transform: scale(1.1);
+      }
+      100% { 
+        box-shadow: 0 0 5px rgba(255, 255, 0, 0.8);
+        transform: scale(1);
+      }
+    }
+    
+    .node-glow {
+      animation: nodeGlow 2s ease-in-out infinite;
+    }
+    
+    /* Custom spinner for auto-refresh */
+    .custom-spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid #f3f3f3;
+      border-top: 2px solid #3498db;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    
+    /* Custom spinner for initial load */
+    .custom-spinner-large {
+      width: 32px;
+      height: 32px;
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #3498db;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    /* Toast fade-out animation */
+    .toast-fade-out {
+      opacity: 0 !important;
+      transform: translateX(-20px) !important;
+      transition: opacity 0.5s ease-out, transform 0.5s ease-out !important;
+    }
+  </style>
+{% endblock %} 

@@ -1,0 +1,615 @@
+{% set this_page = "utilization-hexmap" %}
+{% extends "layout.html.j2" %}
+
+{% block title %}Channel Utilization Map (Hex) | MeshInfo{% endblock %}
+
+{% block og_title %}Channel Utilization Hexmap | {{ config['mesh']['name'] }}{% endblock %}
+{% block og_description %}Hexagonal heatmap showing channel utilization across the {{ config['mesh']['short_name'] }} mesh network. Visualize network activity and coverage patterns.{% endblock %}
+{% block og_image_width %}1200{% endblock %}
+{% block og_image_height %}630{% endblock %}
+{% block twitter_title %}Channel Utilization Hexmap | {{ config['mesh']['name'] }}{% endblock %}
+{% block twitter_description %}Hexagonal heatmap showing channel utilization across the {{ config['mesh']['short_name'] }} mesh network. Visualize network activity and coverage patterns.{% endblock %}
+{% block twitter_image_width %}1200{% endblock %}
+{% block twitter_image_height %}630{% endblock %}
+
+{% block head %}
+  {{ super() }}
+  <!-- Use CDN for both OpenLayers and ol-ext -->
+  <script src="https://cdn.jsdelivr.net/npm/ol@10.5.0/dist/ol.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/ol@10.5.0/ol.css" rel="stylesheet">
+  <!-- ol-ext for hexbin functionality (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/ol-ext@4.0.0/dist/ol-ext.js"></script>
+  <!-- Create global ol object for ol-ext compatibility -->
+  <script>
+    // Ensure ol is available globally
+    if (!window.ol) {
+      console.error('OpenLayers failed to load');
+    } else {
+      console.log('OpenLayers loaded successfully');
+    }
+    
+    // Check ol-ext loading
+    window.addEventListener('load', function() {
+      // console.log('Page loaded, checking ol-ext...');
+      // console.log('window.ol:', window.ol);
+      if (window.ol && window.ol.source) {
+        // console.log('ol.source available:', Object.keys(window.ol.source));
+        // console.log('ol.source.HexBin:', window.ol.source.HexBin);
+      }
+    });
+  </script>
+{% endblock %}
+
+{% block content %}
+  <div id="map" class="map" style="height: 100vh"></div>
+  
+  {# Settings Toggle Button #}
+  <button id="settingsToggle" class="settings-toggle">
+    <i class="bi bi-gear-fill"></i>
+  </button>
+
+  {# Settings Panel - Hidden by default #}
+  <div id="settings" class="settings-panel" style="display: none;">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h5 class="m-0">Settings</h5>
+      <small class="text-muted">Changes are only saved in this browser.</small>
+    </div>
+    
+    <div class="mb-3">
+      <label class="form-label">Time Range</label>
+      <select id="timeRange" class="form-select form-select-sm">
+        <option value="1">Last Hour</option>
+        <option value="6">Last 6 Hours</option>
+        <option value="24" selected>Last 24 Hours</option>
+        <option value="168">Last Week</option>
+        <option value="720">Last Month</option>
+      </select>
+      <small class="text-muted d-block">Show nodes active within this time period.</small>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label">Channel Filter</label>
+      <select id="channelFilter" class="form-select form-select-sm">
+        <option value="all" selected>All Channels</option>
+        {% for channel in Channel %}
+          <option value="{{ channel.value }}">{{ utils.get_channel_name(channel.value) }} ({{ channel.value }})</option>
+        {% endfor %}
+      </select>
+      <small class="text-muted d-block">Filter by specific channel.</small>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label">Hex Size (km)</label>
+      <input type="range" id="hexSize" class="form-range" min="1" max="10" value="5" step="0.5">
+      <small class="text-muted d-block">Size of hex tiles (1-10 km radius).</small>
+      <span id="currentHexSize">5</span> km
+    </div>
+
+    <div class="mb-3">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="useContactRange" checked>
+        <label class="form-check-label" for="useContactRange">
+          Use contact range for node influence
+        </label>
+      </div>
+      <small class="text-muted d-block">Nodes affect hexes within their contact range.</small>
+    </div>
+
+    <div class="mb-3">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="showHexBorders" checked>
+        <label class="form-check-label" for="showHexBorders">
+          Show hex borders
+        </label>
+      </div>
+      <small class="text-muted d-block">Display borders around hex tiles.</small>
+    </div>
+  </div>
+
+  {# Legend #}
+  <div id="legend" class="p-3" style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+    <div class="d-flex justify-content-between align-items-start mb-2">
+      <div class="fw-bold">Channel Utilization Hex Map</div>
+      <button id="legendToggle" class="btn btn-sm btn-outline-secondary" style="padding: 2px 6px; font-size: 0.8em;">
+        <i class="bi bi-info-circle"></i>
+      </button>
+    </div>
+    <div id="legendContent">
+      <canvas id="utilization-colorbar" width="180" height="28" style="display:block;margin-bottom:6px;"></canvas>
+      <div class="d-flex align-items-center mb-2">
+        <div style="width: 20px; height: 20px; background: linear-gradient(to right, #00ff00, #ffff00, #ff8000, #ff0000); border-radius: 4px; margin-right: 8px;"></div>
+        <small class="text-muted">Low → High Utilization</small>
+      </div>
+      <div class="small">
+        <div class="mb-1"><span style="color: #00ff00;">●</span> ≤ 10% (Green)</div>
+        <div class="mb-1"><span style="color: #ffff00;">●</span> 10–20% (Yellow)</div>
+        <div class="mb-1"><span style="color: #ff8000;">●</span> 20–30% (Orange)</div>
+        <div class="mb-1"><span style="color: #ff0000;">●</span> ≥ 40% (Red)</div>
+      </div>
+      <hr class="my-2">
+      <div class="small text-muted">
+        <div class="mb-1">Hex size: <span id="currentHexSize">2</span> km radius</div>
+        <div class="mb-1">Data: Average utilization per hex</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Wait for ol-ext to load and provide fallback
+    function waitForOlExt() {
+      return new Promise((resolve, reject) => {
+        // console.log('Checking for ol-ext HexBin...');
+        // console.log('window.ol:', window.ol);
+        // console.log('window.ol.source:', window.ol && window.ol.source);
+        // console.log('window.ol.source.HexBin:', window.ol && window.ol.source && window.ol.source.HexBin);
+        
+        if (window.ol && window.ol.source && window.ol.source.HexBin) {
+          // console.log('ol_ext found immediately');
+          resolve(window.ol);
+        } else {
+          // console.log('ol_ext not found, waiting...');
+          // Check every 100ms for up to 5 seconds
+          let attempts = 0;
+          const maxAttempts = 50;
+          const checkInterval = setInterval(() => {
+            attempts++;
+            // console.log(`Attempt ${attempts}: ol.source.HexBin =`, window.ol && window.ol.source && window.ol.source.HexBin);
+            if (window.ol && window.ol.source && window.ol.source.HexBin) {
+              // console.log('ol_ext found after waiting');
+              clearInterval(checkInterval);
+              resolve(window.ol);
+            } else if (attempts >= maxAttempts) {
+              // console.log('ol_ext failed to load after all attempts');
+              clearInterval(checkInterval);
+              reject(new Error('ol-ext failed to load'));
+            }
+          }, 100);
+        }
+      });
+    }
+
+    // Initialize the application
+    async function initApp() {
+      try {
+        const ol = await waitForOlExt();
+        // console.log('ol-ext loaded successfully, HexBin available:', ol.source.HexBin);
+
+        // Initialize map
+        const default_position = {
+          latitude: 38.5816,
+          longitude: -121.4944,
+        };
+        var server_position = null;
+        {% if 'latitude' in config['mesh'] and 'longitude'in config['mesh'] %}
+          server_position = {
+            latitude: {{ config['mesh']['latitude'] }},
+            longitude: {{ config['mesh']['longitude'] }}
+          };
+        {% else %}
+          server_position = default_position;
+        {% endif %}
+
+        var server_zoom = null;
+        {% if 'zoom' in config['mesh'] %}
+          server_zoom = {{ config['mesh']['zoom'] }};
+        {% else %}
+          server_zoom = 9.5;
+        {% endif %}
+
+        const map = new ol.Map({
+          target: 'map',
+          layers: [
+            new ol.layer.Tile({
+              source: new ol.source.OSM()
+            })
+          ],
+          view: new ol.View({
+            center: ol.proj.fromLonLat([server_position.longitude, server_position.latitude]),
+            zoom: server_zoom
+          })
+        });
+
+        // Settings management
+        const settings = {
+          timeRange: localStorage.getItem('utilization2TimeRange') || '24',
+          channelFilter: localStorage.getItem('utilization2ChannelFilter') || 'all',
+          hexSize: parseFloat(localStorage.getItem('utilization2HexSize')) || 5,
+          useContactRange: localStorage.getItem('utilization2UseContactRange') !== 'false',
+          showHexBorders: localStorage.getItem('utilization2ShowHexBorders') !== 'false'
+        };
+
+        // Initialize settings UI
+        document.getElementById('timeRange').value = settings.timeRange;
+        document.getElementById('channelFilter').value = settings.channelFilter;
+        document.getElementById('hexSize').value = settings.hexSize;
+        document.getElementById('useContactRange').checked = settings.useContactRange;
+        document.getElementById('showHexBorders').checked = settings.showHexBorders;
+
+        // Settings toggle functionality
+        const settingsToggle = document.getElementById('settingsToggle');
+        const settingsPanel = document.getElementById('settings');
+        let settingsPanelVisible = localStorage.getItem('utilization2SettingsPanelVisible') === 'true';
+        settingsPanel.style.display = settingsPanelVisible ? 'block' : 'none';
+
+        settingsToggle.addEventListener('click', () => {
+          settingsPanelVisible = !settingsPanelVisible;
+          settingsPanel.style.display = settingsPanelVisible ? 'block' : 'none';
+          localStorage.setItem('utilization2SettingsPanelVisible', settingsPanelVisible);
+        });
+
+        // HexBin layer using ol-ext
+        let hexLayer = null;
+        let hexSource = null;
+
+        // Function to create features from node data
+        function createNodeFeatures(nodes) {
+          const features = [];
+          nodes.forEach(node => {
+            if (node.position && node.position.longitude_i && node.position.latitude_i) {
+              const lon = node.position.longitude_i / 10000000;
+              const lat = node.position.latitude_i / 10000000;
+              if (lon >= -180 && lon <= 180 && lat >= -90 && lat <= 90) {
+                const feature = new ol.Feature({
+                  geometry: new ol.geom.Point(ol.proj.fromLonLat([lon, lat])),
+                  utilization: node.utilization,
+                  nodeData: node
+                });
+                features.push(feature);
+              }
+            }
+          });
+          return features;
+        }
+
+        // Function to get color for utilization
+        function getUtilizationColor(util) {
+          if (util <= 10) {
+            return interpolateColor('#00ff00', '#ffff00', util / 10);
+          } else if (util <= 20) {
+            return interpolateColor('#ffff00', '#ff8000', (util - 10) / 10);
+          } else if (util <= 30) {
+            return interpolateColor('#ff8000', '#ff8000', 1); // Hold orange from 20-30
+          } else if (util <= 40) {
+            return interpolateColor('#ff8000', '#ff0000', (util - 30) / 10);
+          } else {
+            return '#ff0000';
+          }
+        }
+        function interpolateColor(a, b, t) {
+          const ah = a.replace('#', ''), bh = b.replace('#', '');
+          const ar = parseInt(ah.substring(0,2), 16), ag = parseInt(ah.substring(2,4), 16), ab = parseInt(ah.substring(4,6), 16);
+          const br = parseInt(bh.substring(0,2), 16), bg = parseInt(bh.substring(2,4), 16), bb = parseInt(bh.substring(4,6), 16);
+          const rr = Math.round(ar + (br - ar) * t);
+          const rg = Math.round(ag + (bg - ag) * t);
+          const rb = Math.round(ab + (bb - ab) * t);
+          return '#' + ((1 << 24) + (rr << 16) + (rg << 8) + rb).toString(16).slice(1);
+        }
+
+        // Function to update hexbin layer
+        function updateHexLayer() {
+          console.log('Updating hex layer with size:', settings.hexSize, 'km');
+          
+          // Clear old hex layer and source
+          if (hexLayer) {
+            console.log('Removing old hex layer');
+            map.removeLayer(hexLayer);
+            hexLayer = null;
+          }
+          if (hexSource) {
+            console.log('Clearing old hex source');
+            hexSource.clear();
+            hexSource = null;
+          }
+          
+          // Show loading state
+          const loadingDiv = document.createElement('div');
+          loadingDiv.id = 'hex-loading';
+          loadingDiv.innerHTML = '<div class="text-center p-3"><i class="bi bi-arrow-clockwise spin"></i> Loading hex map...</div>';
+          loadingDiv.style.cssText = 'position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); z-index: 1001;';
+          document.getElementById('map').appendChild(loadingDiv);
+
+          fetch(`/api/utilization-data?time_range=${settings.timeRange}&channel=${settings.channelFilter}`)
+            .then(response => response.json())
+            .then(data => {
+              if (data.error) {
+                console.error('Error fetching utilization data:', data.error);
+                return;
+              }
+              const features = createNodeFeatures(data.nodes);
+              const pointSource = new ol.source.Vector({ features });
+              const hexSizeMeters = settings.hexSize * 1000;
+              
+              // Create HexBin source (like the ol-ext example)
+              hexSource = new ol.source.HexBin({
+                source: pointSource,
+                size: hexSizeMeters
+              });
+              
+              console.log('Created new hex source with size:', hexSizeMeters, 'meters');
+              
+              // Create Vector layer with HexBin source
+              hexLayer = new ol.layer.Vector({
+                source: hexSource,
+                renderBuffer: 200, // Increase render buffer for better hit detection
+                style: function(feature) {
+                  // Get the features in this hex
+                  const hexFeatures = feature.get('features');
+                  let avgUtil = 0;
+                  let nodeCount = 0;
+                  
+                  if (hexFeatures && hexFeatures.length > 0) {
+                    avgUtil = hexFeatures.reduce((sum, f) => sum + (f.get('utilization') || 0), 0) / hexFeatures.length;
+                    nodeCount = hexFeatures.length;
+                    
+                    // Set properties directly on the feature during styling
+                    feature.set('utilization', avgUtil);
+                    feature.set('nodeCount', nodeCount);
+                    feature.set('hexFeatures', hexFeatures);
+                  }
+                  
+                  const color = getUtilizationColor(avgUtil);
+                  const opacity = settings.showHexBorders ? '80' : '60';
+                  
+                  return new ol.style.Style({
+                    fill: new ol.style.Fill({ color: color + opacity }),
+                    stroke: settings.showHexBorders ? new ol.style.Stroke({ color: '#333', width: 1 }) : new ol.style.Stroke({ color: 'transparent', width: 0 })
+                  });
+                }
+              });
+              
+              map.addLayer(hexLayer);
+              console.log('Added new hex layer to map');
+              
+              // Remove loading state
+              const loadingElement = document.getElementById('hex-loading');
+              if (loadingElement) loadingElement.remove();
+            })
+            .catch(error => {
+              console.error('Error updating hex layer:', error);
+              const loadingElement = document.getElementById('hex-loading');
+              if (loadingElement) loadingElement.remove();
+            });
+        }
+
+        // Event listeners for settings changes
+        document.getElementById('timeRange').addEventListener('change', function(e) {
+          settings.timeRange = e.target.value;
+          localStorage.setItem('utilization2TimeRange', e.target.value);
+          updateHexLayer();
+        });
+
+        document.getElementById('channelFilter').addEventListener('change', function(e) {
+          settings.channelFilter = e.target.value;
+          localStorage.setItem('utilization2ChannelFilter', e.target.value);
+          updateHexLayer();
+        });
+
+        // Event listener for hex size slider
+        document.getElementById('hexSize').addEventListener('input', function(e) {
+          // Update the display immediately for responsive UI
+          document.getElementById('currentHexSize').textContent = e.target.value;
+        });
+        
+        document.getElementById('hexSize').addEventListener('change', function(e) {
+          // Only update the hex layer when the slider is released
+          settings.hexSize = parseFloat(e.target.value);
+          localStorage.setItem('utilization2HexSize', e.target.value);
+          updateHexLayer();
+        });
+        // Set initial value
+        document.getElementById('currentHexSize').textContent = settings.hexSize;
+
+        document.getElementById('useContactRange').addEventListener('change', function(e) {
+          settings.useContactRange = e.target.checked;
+          localStorage.setItem('utilization2UseContactRange', e.target.checked);
+          updateHexLayer();
+        });
+
+        document.getElementById('showHexBorders').addEventListener('change', function(e) {
+          settings.showHexBorders = e.target.checked;
+          localStorage.setItem('utilization2ShowHexBorders', e.target.checked);
+          if (hexLayer) {
+            hexLayer.changed(); // Trigger style update
+          }
+        });
+
+        // Tooltip overlay for hex details
+        const tooltip = document.createElement('div');
+        tooltip.className = 'ol-tooltip ol-tooltip-static';
+        tooltip.style.display = 'none';
+        tooltip.style.position = 'absolute';
+        tooltip.style.background = 'rgba(255,255,255,0.95)';
+        tooltip.style.border = '1px solid #ccc';
+        tooltip.style.borderRadius = '6px';
+        tooltip.style.padding = '8px 12px';
+        tooltip.style.pointerEvents = 'none';
+        tooltip.style.fontSize = '0.95em';
+        tooltip.style.zIndex = 1100;
+        document.body.appendChild(tooltip);
+        let tooltipOverlay = new ol.Overlay({
+          element: tooltip,
+          offset: [0, -15],
+          positioning: 'bottom-center',
+          stopEvent: false
+        });
+        map.addOverlay(tooltipOverlay);
+
+        map.on('pointermove', function(evt) {
+          if (evt.dragging) {
+            tooltip.style.display = 'none';
+            return;
+          }
+          
+          // Debug: log pixel coordinates
+          // console.log('Mouse at pixel:', evt.pixel);
+          
+          const features = [];
+          map.forEachFeatureAtPixel(evt.pixel, function(f, l) {
+            // console.log('Found feature:', f, 'in layer:', l);
+            if (l === hexLayer) {
+              features.push(f);
+            }
+          });
+          
+          if (features.length > 0) {
+            const feature = features[0]; // Take the first hex feature
+            // console.log('Hex feature:', feature);
+            // console.log('Feature utilization:', feature.get('utilization'));
+            // console.log('Feature nodeCount:', feature.get('nodeCount'));
+            // console.log('Feature hexFeatures:', feature.get('hexFeatures'));
+            
+            const utilization = feature.get('utilization');
+            const nodeCount = feature.get('nodeCount');
+            if (utilization !== undefined) {
+              const color = getUtilizationColor(utilization);
+              const hexFeatures = feature.get('hexFeatures');
+              
+              // Build detailed node list
+              let nodeDetails = '';
+              if (hexFeatures && hexFeatures.length > 0) {
+                const nodeList = hexFeatures.slice(0, 5).map(f => {
+                  const node = f.get('nodeData');
+                  const nodeColor = getUtilizationColor(node.utilization);
+                  return `<span style="display:inline-block;width:0.8em;height:0.8em;background:${nodeColor};border-radius:50%;border:1px solid #888;vertical-align:middle;margin-right:4px;"></span>${node.short_name || node.long_name || node.id} (${node.utilization}%)`;
+                }).join('<br>');
+                
+                if (hexFeatures.length > 5) {
+                  nodeDetails = nodeList + `<br><small class="text-muted">... and ${hexFeatures.length - 5} more nodes</small>`;
+                } else {
+                  nodeDetails = nodeList;
+                }
+              }
+              
+              tooltip.innerHTML = `
+                <div style="margin-bottom:6px;">
+                  <span style="display:inline-block;width:1em;height:1em;background:${color};border-radius:50%;border:1px solid #888;vertical-align:middle;margin-right:4px;"></span>
+                  <b>Hex Tile</b><br>
+                  Average Utilization: <b>${utilization.toFixed(1)}%</b><br>
+                  Nodes: <b>${nodeCount}</b><br>
+                  Hex Size: <b>${settings.hexSize} km</b>
+                  ${nodeDetails ? '<hr style="margin:6px 0;"><small><b>Nodes in hex:</b><br>' + nodeDetails + '</small>' : ''}
+                </div>
+              `;
+              tooltip.style.display = 'block';
+              tooltipOverlay.setPosition(evt.coordinate);
+            } else {
+              // console.log('No valid properties found');
+              tooltip.style.display = 'none';
+            }
+          } else {
+            // console.log('No hex features found at pixel');
+            tooltip.style.display = 'none';
+          }
+        });
+
+        // Add click handler for debugging
+        map.on('click', function(evt) {
+          // console.log('Map clicked at:', evt.coordinate);
+          const features = [];
+          map.forEachFeatureAtPixel(evt.pixel, function(f, l) {
+            // console.log('Click - Found feature:', f, 'in layer:', l);
+            if (l === hexLayer) {
+              features.push(f);
+            }
+          });
+          // console.log('Click - Hex features found:', features.length);
+        });
+
+        // Draw colorbar for legend
+        function drawUtilizationColorbar() {
+          const canvas = document.getElementById('utilization-colorbar');
+          if (!canvas) return;
+          const ctx = canvas.getContext('2d');
+          const w = canvas.width, h = canvas.height;
+          for (let x = 0; x < w; x++) {
+            const util = (x / w) * 40; // 0-40%
+            ctx.fillStyle = getUtilizationColor(util);
+            ctx.fillRect(x, 0, 1, h);
+          }
+          // Draw ticks and labels
+          ctx.font = '11px sans-serif';
+          ctx.fillStyle = '#222';
+          ctx.textAlign = 'center';
+          [0, 10, 20, 30, 40].forEach(val => {
+            const x = Math.round((val / 40) * w);
+            ctx.fillRect(x, h-8, 1, 8);
+            ctx.fillText(val + '%', x, h-12);
+          });
+        }
+        window.addEventListener('DOMContentLoaded', drawUtilizationColorbar);
+        window.addEventListener('resize', drawUtilizationColorbar);
+
+        // Legend toggle functionality
+        const legendToggle = document.getElementById('legendToggle');
+        const legendContent = document.getElementById('legendContent');
+        let legendMinimized = localStorage.getItem('utilization2LegendMinimized') === 'true';
+        
+        function updateLegendState() {
+          if (legendMinimized) {
+            legendContent.style.display = 'none';
+            legendToggle.innerHTML = '<i class="bi bi-info-circle"></i>';
+            legendToggle.title = 'Show legend';
+          } else {
+            legendContent.style.display = 'block';
+            legendToggle.innerHTML = '<i class="bi bi-x-circle"></i>';
+            legendToggle.title = 'Hide legend';
+          }
+        }
+        
+        // Initialize legend state
+        updateLegendState();
+        
+        legendToggle.addEventListener('click', () => {
+          legendMinimized = !legendMinimized;
+          localStorage.setItem('utilization2LegendMinimized', legendMinimized);
+          updateLegendState();
+        });
+
+        // Initial hex layer update
+        updateHexLayer();
+        
+      } catch (error) {
+        console.error('Failed to initialize hex map:', error);
+        // Show error message to user
+        const errorDiv = document.createElement('div');
+        errorDiv.innerHTML = '<div class="text-center p-3 text-danger"><i class="bi bi-exclamation-triangle"></i> Failed to load hex map. Please refresh the page.</div>';
+        errorDiv.style.cssText = 'position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); z-index: 1001;';
+        document.getElementById('map').appendChild(errorDiv);
+      }
+    }
+
+    // Start the application
+    initApp();
+  </script>
+  <style>
+    #map {
+      height: 100%;
+      width: 100%;
+    }
+    #legend {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      z-index: 1000;
+      max-width: 250px;
+    }
+    .spin {
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .ol-tooltip {
+      position: absolute;
+      background: rgba(255,255,255,0.95);
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      padding: 8px 12px;
+      pointer-events: none;
+      font-size: 0.95em;
+      z-index: 1100;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+  </style>
+{% endblock %} 

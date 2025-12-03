@@ -1,16 +1,22 @@
 [mesh]
-name=ZA Mesh
-description=Serving Meshtastic to South Africa.
-contact=dade@dade.co.za
-url=https://mesh.zr1rf.za.net
-latitude=-33.918861
-longitude=18.423300
+name=Your Mesh Name
+short_name=YourMesh
+region=Your Mesh Region
+description=Serving Meshtastic to your region.
+contact=https://yourmesh.org
+url=https://yourmesh.org
+# Optional: link to your mesh's configuration guide
+config_url=https://yourmesh.org/config-instructions
+# Optional: link to your mesh's Discord or community chat
+discord_url=https://discord.gg/yourdiscord
+latitude=0.0
+longitude=0.0
 channel_key=1PG7OiApB1nwvP+rz05pAQ==
 
 [mqtt]
-broker=mqtt.zr1rf.za.net
+broker=mqtt.yourmesh.org
 port=1883
-topic=msh/ZA/#
+topic=msh/US/#
 username=meshdev
 password=large4cats
 
@@ -25,10 +31,17 @@ port=8000
 
 [server]
 node_activity_prune_threshold=7200
+node_location_prune_threshold=86400
 render_interval=15
 debug=true
 timezone=America/Los_Angeles
 zero_hop_timeout=43200
+telemetry_retention_days = 30
+metrics_average_interval=7200
+
+[channels]
+# Comma-separated list of channel names to ignore
+#ignored_channels=PKI
 
 [geocoding]
 enabled=false
@@ -36,10 +49,65 @@ apikey=YOUR_KEY_HERE
 
 [registrations]
 enabled=true
-jwt_secret=6219c1c2364499639ce9d16c33863c4f6fedb7a4a1a0f29524c20d95cb00e5f5
+jwt_secret=YOUR_JWT_SECRET
 
 [smtp]
 email=YOUR_EMAIL_ADDRESS
 password=SMTP_PASSWORD
 server=SMTP_SERVER
 port=SMTP_PORT
+
+[los]
+enabled=false
+max_distance=10000
+cache_duration=43200
+
+[tools]
+meshmap=https://meshmap.net/
+meshmap_label=MeshMap
+meshmap_link="https://meshmap.net/#{{ node.id }}"
+pugetmesh_map=https://mqtt.davekeogh.com/?lat=47.60292227835496&lng=237.49420166015628&zoom=10
+pugetmesh_map_label=PugetMesh Map
+pugetmesh_map_link="https://meshtastic.pugetmesh.org/?node_id={{ node.id }}"
+meshsense_label=MeshSense Map
+meshsense=https://meshsense.affirmatech.com/
+
+[theme]
+# Header background color (navbar)
+header_color=#9fdef9
+# Header brand/title color
+header_brand_color=#000
+# Header navigation link color
+header_link_color=#555
+# Header active navigation link color
+header_link_active_color=#000
+# Accent color (login/logout button, etc.)
+accent_color=#17a2b8
+# Page background color
+page_background_color=#ffffff
+# Table header background color
+table_header_color=#D7F9FF
+# Table subheader background color
+table_subheader_color=#e1ebef
+# Table border color
+table_border_color=#dee2e6
+# Table alternating row background color
+table_alternating_row_color=#f0f0f0
+# Link color
+link_color=#007bff
+# Link hover color  
+link_color_hover=#0056b3
+# Control color (buttons, form controls)
+control_color=#17a2b8
+# Control hover color
+control_color_hover=#1396a5
+# Chat box background color
+chat_box_background_color=#f0f0f0
+# Chat box border color (leave empty for no border)
+chat_box_border_color=
+# Banner background color (e.g. for newest node welcome in nodes page)
+banner_background_color=#F9F9D7
+# Favicon background color override (optional, falls back to accent_color if not set)
+favicon_background_color=
+# Favicon logo (stroke) color override (optional, falls back to auto-contrast if not set)
+favicon_logo_color=

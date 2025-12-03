@@ -1,5 +1,16 @@
+<div class="d-flex justify-content-end mb-2 gap-3">
+  <div class="form-check form-switch">
+    <input class="form-check-input" type="checkbox" role="switch" id="showPosition">
+    <label class="form-check-label" for="showPosition">Show Position</label>
+  </div>
+  <div class="form-check form-switch">
+    <input class="form-check-input" type="checkbox" role="switch" id="showTelemetry">
+    <label class="form-check-label" for="showTelemetry">Show Telemetry</label>
+  </div>
+</div>
+
 <div class="table-responsive">
-  <table class="table table-striped table-bordered table-sm">
+  <table class="table table-striped table-bordered table-sm node-table">
     <thead>
       <tr>
         <th colspan="2" scope="col">ID</th>
@@ -7,9 +18,8 @@
         <th scope="col">HW</th>
         <th scope="col">FW</th>
         <th scope="col">Role</th>
-        <th colspan="3" scope="col">Last Position</th>
-        <th scope="col">Neighbors</th>
-        <th colspan="4" scope="col">Telemetry</th>
+        <th colspan="3" scope="col" class="position-col">Last Position</th>
+        <th colspan="4" scope="col" class="telemetry-col">Telemetry</th>
         <th scope="col">Seen</th>
         <th scope="col">Owner</th>
       </tr>
@@ -21,24 +31,20 @@
         <th scope="col">&nbsp;</th>
         <th scope="col">&nbsp;</th>
         <th scope="col">&nbsp;</th>
-        <th scope="col">Altitude</th>
-        <th scope="col">Latitude</th>
-        <th scope="col">Longitude</th>
-        <th scope="col">Count</th>
-        <th scope="col"><img src="images/icons/battery.svg" style="height: 20px;" alt="Battery" title="Battery"></th>
-        <th scope="col"><img src="images/icons/voltage.svg" style="height: 14px;" alt="Voltage" title="Voltage"></th>
-        </th>
-        <th scope="col"><img src="images/icons/up.svg" style="height: 14px;" alt="Air Util TX" title="Air Util TX"></th>
-        </th>
-        <th scope="col"><img src="images/icons/down.svg" style="height: 14px;" alt="Channel Util" title="Channel Util">
-        </th>
-        </th>
+        <th scope="col" class="position-col">Altitude</th>
+        <th scope="col" class="position-col">Latitude</th>
+        <th scope="col" class="position-col">Longitude</th>
+        <th scope="col" class="telemetry-col"><img src="images/icons/battery.svg" style="height: 20px;" alt="Battery" title="Battery"></th>
+        <th scope="col" class="telemetry-col"><img src="images/icons/voltage.svg" style="height: 14px;" alt="Voltage" title="Voltage"></th>
+        <th scope="col" class="telemetry-col"><img src="images/icons/up.svg" style="height: 14px;" alt="Air Util TX" title="Air Util TX"></th>
+        <th scope="col" class="telemetry-col"><img src="images/icons/down.svg" style="height: 14px;" alt="Channel Util" title="Channel Util"></th>
         <th scope="col">Since</th>
         <th scope="col"></th>
       </tr>
     <tbody>
       {% for id, node in nodes.items()|sort(attribute='1.short_name') %}
       {% if node.active or show_inactive %}
+      {% if not hw_model_filter or node.hw_model == hw_model_filter|int %}
       <tr style="{% if not node.active %}opacity: 0.5;{% endif %}">
         <td class="p-0" style="width:50px;">
           <img src="https://api.dicebear.com/9.x/bottts-neutral/svg?seed={{ id }}" alt="Avatar"
@@ -64,14 +70,21 @@
           {{ node.long_name }}
         </td>
         <td scope="col" class="text-center">
-          {% if node.hw_model and node.hw_model in meshtastic_support.HardwareModel._value2member_map_ %}
-          {% if meshtastic_support.HardwareModel(node.hw_model) and meshtastic_support.HardwareModel(node.hw_model) in
-          meshtastic_support.HARDWARE_PHOTOS %}
-          <img
-            src="images/hardware/{{ meshtastic_support.HARDWARE_PHOTOS[meshtastic_support.HardwareModel(node.hw_model)] }}"
-            alt="{{ meshtastic_support.HardwareModel(node.hw_model).name }}"
-            title="{{ meshtastic_support.HardwareModel(node.hw_model).name }}" style="width: 50px;">
-          {% endif %}
+          {% if node.hw_model is not none %}
+            {% set hw_name = meshtastic_support.get_hardware_model_name(node.hw_model) %}
+            {% if node.hw_model in meshtastic_support.HardwareModel._value2member_map_ %}
+              {% set hw_model_enum = meshtastic_support.HardwareModel(node.hw_model) %}
+              {% if hw_model_enum in meshtastic_support.HARDWARE_PHOTOS %}
+                <img
+                  src="images/hardware/{{ meshtastic_support.HARDWARE_PHOTOS[hw_model_enum] }}"
+                  alt="{{ hw_name }}"
+                  title="{{ hw_name }}" style="width: 50px;">
+              {% else %}
+                <!-- Debug: No photo found for {{ node.hw_model }} ({{ hw_model_enum.name }}) -->
+              {% endif %}
+            {% else %}
+              <!-- Debug: Invalid hardware model: {{ node.hw_model }} -->
+            {% endif %}
           {% endif %}
         </td>
         <td scope="col">
@@ -81,57 +94,31 @@
         </td>
         <td scope="col">
           {% if node.role is not none %}
-          {% if node.role == 0 %}
-          <span title="Client">C</span>
-          {% elif node.role == 1 %}
-          <span title="Client Mute">CM</span>
-          {% elif node.role == 2 %}
-          <span title="Router">R</span>
-          {% elif node.role == 3 %}
-          <span title="Router Client">RC</span>
-          {% elif node.role == 4 %}
-          <span title="Repeater">RE</span>
-          {% elif node.role == 5 %}
-          <span title="Tracker">T</span>
-          {% elif node.role == 6 %}
-          <span title="Sensor">S</span>
-          {% elif node.role == 7 %}
-          <span title="ATAK">A</span>
-          {% elif node.role == 8 %}
-          <span title="Client Hidden">CH</span>
-          {% elif node.role == 9 %}
-          <span title="Lost and Found">LF</span>
-          {% elif node.role == 10 %}
-          <span title="ATAK Tracker">AT</span>
-          {% endif %}
+            {% set badge_text, badge_style = get_role_badge(node.role) %}
+            <span class="role-badge" style="{{ badge_style }}" title="{{ utils.get_role_name(node.role) }}">{{ badge_text }}</span>
           {% endif %}
         </td>
         {% if node.position %}
-        <td  scope="col">
+        <td scope="col" class="position-col">
           {% if node.position.altitude %}
           {{ node.position.altitude }} m
           {% endif %}
         </td>
-        <td  scope="col">{{ node.position.latitude or "" }}</td>
-        <td  scope="col">{{ node.position.longitude or "" }}</td>
+        <td scope="col" class="position-col">{{ node.position.latitude or "" }}</td>
+        <td scope="col" class="position-col">{{ node.position.longitude or "" }}</td>
         {% else %}
-        <td  scope="col"></td>
-        <td  scope="col"></td>
-        <td  scope="col"></td>
-        {% endif %}
-        {% if node.neighbors %}
-        <td  scope="col">{{ node.neighbors|length or "" }}</td>
-        {% else %}
-        <td  scope="col"></td>
+        <td scope="col" class="position-col"></td>
+        <td scope="col" class="position-col"></td>
+        <td scope="col" class="position-col"></td>
         {% endif %}
         {% if node.telemetry %}
-          <td  scope="col">
-            {% if 'battery_level' in node.telemetry %}
+          <td scope="col" class="telemetry-col">
+            {% if node.telemetry and node.telemetry.battery_level is not none %}
               {{ node.telemetry.battery_level }}%
             {% endif %}
           </td>
-          <td  scope="col">
-            {% if 'voltage' in node.telemetry %}
+          <td scope="col" class="telemetry-col">
+            {% if node.telemetry and node.telemetry.voltage is not none %}
               {% if node.telemetry.voltage is number %}
                 {{ node.telemetry.voltage|round(2) }}V
               {% else %}
@@ -139,8 +126,8 @@
               {% endif %}
             {% endif %}
           </td>
-          <td  scope="col">
-            {% if 'air_util_tx' in node.telemetry %}
+          <td scope="col" class="telemetry-col">
+            {% if node.telemetry and node.telemetry.air_util_tx is not none %}
               {% if node.telemetry.air_util_tx is number %}
                 {{ node.telemetry.air_util_tx|round(1) }}%
               {% else %}
@@ -148,8 +135,8 @@
               {% endif %}
             {% endif %}
           </td>
-          <td  scope="col">
-            {% if 'channel_utilization' in node.telemetry %}
+          <td scope="col" class="telemetry-col">
+            {% if node.telemetry and node.telemetry.channel_utilization is not none %}
               {% if node.telemetry.channel_utilization is number %}
                 {{ node.telemetry.channel_utilization|round(1) }}%
               {% else %}
@@ -158,12 +145,17 @@
             {% endif %}
           </td>
           {% else %}
-          <td scope="col"></td>
-          <td scope="col"></td>
-          <td scope="col"></td>
-          <td scope="col"></td>
+          <td scope="col" class="telemetry-col"></td>
+          <td scope="col" class="telemetry-col"></td>
+          <td scope="col" class="telemetry-col"></td>
+          <td scope="col" class="telemetry-col"></td>
           {% endif %}
-          <td scope="col">{{ time_ago(node.ts_seen) }}</td>
+          <td scope="col">
+            {% if node.channel is not none %}
+            <span class="message-channel" style="background-color: {{ utils.get_channel_color(node.channel) }}; color: white; padding: 2px 6px; border-radius: 4px;" title="Channel {{ node.channel }} ({{ utils.get_channel_name(node.channel) }})">{{ utils.get_channel_name(node.channel, use_short_names=True) }}</span>
+            {% endif %}
+            {{ time_ago(node.ts_seen) }}
+          </td>
           <td>
             {% if node.owner_username %}
             <a href="user_{{ node.owner_username }}.html">{{ node.owner_username }}</a>
@@ -171,9 +163,65 @@
           </td>
       </tr>
       {% endif %}
+      {% endif %}
       {% endfor %}
     </tbody>
-
-    </thead>
   </table>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const positionSwitch = document.getElementById('showPosition');
+    const telemetrySwitch = document.getElementById('showTelemetry');
+    const positionCols = document.querySelectorAll('.position-col');
+    const telemetryCols = document.querySelectorAll('.telemetry-col');
+
+    function toggleColumns(columns, show) {
+        columns.forEach(col => {
+            col.style.display = show ? '' : 'none';
+        });
+    }
+
+    // Load saved preferences from localStorage
+    let showPosition = localStorage.getItem('showPosition');
+    let showTelemetry = localStorage.getItem('showTelemetry');
+
+    // Convert string 'true'/'false' to boolean, default to false if not set
+    showPosition = showPosition === 'true';
+    showTelemetry = showTelemetry === 'true';
+
+    // Set initial checkbox states
+    positionSwitch.checked = showPosition;
+    telemetrySwitch.checked = showTelemetry;
+
+    // Set initial column visibility
+    toggleColumns(positionCols, showPosition);
+    toggleColumns(telemetryCols, showTelemetry);
+
+    // Event listeners for changes
+    positionSwitch.addEventListener('change', function() {
+        const isChecked = this.checked;
+        toggleColumns(positionCols, isChecked);
+        localStorage.setItem('showPosition', isChecked);
+    });
+
+    telemetrySwitch.addEventListener('change', function() {
+        const isChecked = this.checked;
+        toggleColumns(telemetryCols, isChecked);
+        localStorage.setItem('showTelemetry', isChecked);
+    });
+});
+</script>
+
+<style>
+.form-switch {
+    padding-left: 2.5em;
+}
+.form-check-input {
+    cursor: pointer;
+}
+.form-check-label {
+    cursor: pointer;
+    user-select: none;
+}
+</style>

@@ -2,9 +2,22 @@
 
 {% block title %}{{ node.short_name }} | Node | MeshInfo{% endblock %}
 {% block head %}
-<script src="https://cdn.jsdelivr.net/npm/openlayers@4.6.5/dist/ol.min.js"></script>
-<link href="https://cdn.jsdelivr.net/npm/openlayers@4.6.5/dist/ol.min.css" rel="stylesheet">
+  {{ super() }}
+  {% include "map_dependencies.html.j2" %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
 {% endblock %}
+
+{% block og_image %}{% if node.position and node.position.latitude_i and node.position.longitude_i %}{{ url_for('og_image_node_map', node_id=node.id, _external=True) }}{% else %}{{ super() }}{% endif %}{% endblock %}
+{% block og_image_width %}800{% endblock %}
+{% block og_image_height %}400{% endblock %}
+{% block og_title %}{{ node.short_name }} - {{ node.long_name }} | {{ config['mesh']['short_name'] }}{% endblock %}
+{% block og_description %}Node {{ node.id_hex }} in the {{ config['mesh']['short_name'] }} mesh network{% if node.position and node.position.latitude_i and node.position.longitude_i %} at {{ "%.4f"|format(node.position.latitude_i / 10000000.0) }}, {{ "%.4f"|format(node.position.longitude_i / 10000000.0) }}{% endif %}{% endblock %}
+{% block twitter_title %}{{ node.short_name }} - {{ node.long_name }} | {{ config['mesh']['short_name'] }}{% endblock %}
+{% block twitter_description %}Node {{ node.id_hex }} in the {{ config['mesh']['short_name'] }} mesh network{% if node.position and node.position.latitude_i and node.position.longitude_i %} at {{ "%.4f"|format(node.position.latitude_i / 10000000.0) }}, {{ "%.4f"|format(node.position.longitude_i / 10000000.0) }}{% endif %}{% endblock %}
+{% block twitter_image %}{% if node.position and node.position.latitude_i and node.position.longitude_i %}{{ url_for('og_image_node_map', node_id=node.id, _external=True) }}{% else %}{{ super() }}{% endif %}{% endblock %}
+{% block twitter_image_width %}800{% endblock %}
+{% block twitter_image_height %}400{% endblock %}
 
 {% block content %}
 <div class="container pt-3">
@@ -16,14 +29,14 @@
     <tr>
       <td rowspan="2"><img src="https://api.dicebear.com/9.x/bottts-neutral/svg?seed={{ node.id }}" alt="Avatar"
           style="height: 50px;"></td>
-      <td colspan="4">
+      <td colspan="4" style="padding-left: 1em;">
         <h5>{{ node.short_name }} - {{ node.long_name }}</h5>
       </td>
     </tr>
     <tr>
       {% if node.telemetry %}
       <td class="text-center">
-        {% if node.telemetry.air_util_tx %}
+        {% if node.telemetry.air_util_tx is not none %}
         <span class="text-center" title="Air Util TX">
           <img src="images/icons/up.svg" alt="Air Util TX" style="height: 14px">
           {{ node.telemetry.air_util_tx | round(1) }}%
@@ -31,7 +44,7 @@
         {% endif %}
       </td>
       <td class="text-center">
-        {% if node.telemetry.channel_utilization %}
+        {% if node.telemetry.channel_utilization is not none %}
         <span class="text-center" title="Channel Util">
           <img src="images/icons/down.svg" alt="Channel Util" style="height: 14px">
           {{ node.telemetry.channel_utilization | round(1) }}%
@@ -39,7 +52,7 @@
         {% endif %}
       </td>
       <td class="text-center">
-        {% if node.telemetry.battery_level %}
+        {% if node.telemetry.battery_level is not none %}
         <span class="text-center" title="Battery Level">
           <img src="images/icons/battery.svg" alt="Battery" style="height: 20px">
           {{ node.telemetry.battery_level | round(0) }}%
@@ -47,7 +60,7 @@
         {% endif %}
       </td>
       <td class="text-center">
-        {% if node.telemetry.voltage %}
+        {% if node.telemetry.voltage is not none %}
           <span class="text-center" title="Voltage">
             <img src="images/icons/voltage.svg" alt="Voltage" style="height: 14px">
             {% if node.telemetry.voltage is number %}
@@ -66,540 +79,1024 @@
 </div>
 <div class="container">
   <div class="row">
-    <div class="col-sm p-2">
-      {% if node.position and node.position.latitude_i and node.position.longitude_i %}
-      <div id="map" class="map"></div>
-      {% endif %}
-      {% if node.telemetry %}
-      <img class="w-100" src="data:image/jpeg;base64,{{ telemetry_graph }}">
-      {% endif %}
-      <div class="w-100 mt-2 text-center fw-bold p-2" style="background: #D7F9FF;">Elsewhere</div>
-      <div>
-        <!-- <a href="https://meshview.zr1rf.za.net/packet_list/{{ node.id }}"
-          target="_blank">Armooo's MeshView</a><br /> -->
-        <a href="https://meshtastic.davekeogh.com/?node_id={{ node.id }}"
-          target="_blank">PugetMesh Map</a><br />
-        <a href="https://meshmap.net/#{{ node.id }}" target="_blank">MeshMap</a>
+    <!-- Left Column: Map, Telemetry -->
+    <div class="col-12 col-md-6">
+      <div class="container px-0">
+        <div class="row">
+          <div class="col-12 p-2">
+            {% if node.position and node.position.latitude_i and node.position.longitude_i %}
+            <div id="map" class="map"></div>
+            {% endif %}
+            {% if node.telemetry %}
+            <div class="w-100" id="telemetryChartContainer">
+              <canvas id="telemetryChart" height="250"></canvas>
+            </div>
+            <script>
+            document.addEventListener('DOMContentLoaded', function() {
+              const container = document.getElementById('telemetryChartContainer');
+              const canvas = document.getElementById('telemetryChart');
+              fetch('/api/telemetry/{{ node.id }}')
+                .then(response => response.json())
+                .then(data => {
+                  if (!data || data.length === 0 || data.every(d => !d.air_util_tx && !d.channel_utilization && !d.battery_level)) {
+                    canvas.style.display = 'none';
+                    if (!document.getElementById('noTelemetryMsg')) {
+                      const msg = document.createElement('div');
+                      msg.id = 'noTelemetryMsg';
+                      msg.className = 'text-center text-muted';
+                      msg.innerText = 'No Telemetry';
+                      container.appendChild(msg);
+                    }
+                    return;
+                  }
+                  canvas.style.display = '';
+                  const ctx = document.getElementById('telemetryChart').getContext('2d');
+                  const airUtilTx = data.map(d => d.air_util_tx);
+                  const channelUtil = data.map(d => d.channel_utilization);
+                  const batteryLevel = data.map(d => d.battery_level);
+
+                  // Find the highest value across all datasets
+                  const allValues = airUtilTx.concat(channelUtil, batteryLevel).filter(v => v !== null && v !== undefined);
+                  let maxValue = Math.max(...allValues, 100);
+                  // Only add headroom if maxValue exceeds 100
+                  let yMax = maxValue > 100 ? maxValue * 1.05 : 100;
+                  // Round up to next multiple of 20 so 100 is always a tick
+                  let yMaxRounded = Math.ceil(yMax / 20) * 20;
+
+                  // Use ISO strings for Chart.js time scale
+                  const labels = data.map(d => new Date(d.ts_created * 1000).toISOString());
+
+                  new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                      labels: labels,
+                      datasets: [
+                        {
+                          label: 'Air Util TX',
+                          data: airUtilTx,
+                          borderColor: 'blue',
+                          backgroundColor: 'rgba(0,0,255,0.1)',
+                          fill: false,
+                          tension: 0.2,
+                          pointRadius: 2,
+                          spanGaps: true,
+                          borderWidth: 1,
+                        },
+                        {
+                          label: 'Channel Utilization',
+                          data: channelUtil,
+                          borderColor: 'purple',
+                          backgroundColor: 'rgba(128,0,128,0.1)',
+                          fill: false,
+                          tension: 0.2,
+                          pointRadius: 2,
+                          spanGaps: true,
+                          borderWidth: 1,
+                        },
+                        {
+                          label: 'Battery Level',
+                          data: batteryLevel,
+                          borderColor: 'red',
+                          backgroundColor: 'rgba(255,0,0,0.1)',
+                          fill: false,
+                          tension: 0.2,
+                          pointRadius: 2,
+                          spanGaps: true,
+                          borderWidth: 1,
+                        }
+                      ]
+                    },
+                    options: {
+                      responsive: true,
+                      plugins: {
+                        legend: { position: 'top' },
+                        title: { display: true, text: '24hr Telemetry Data' }
+                      },
+                      scales: {
+                        x: {
+                          type: 'time',
+                          time: {
+                            unit: 'hour',
+                            stepSize: 3,
+                            displayFormats: {
+                              hour: 'MM/dd HH:mm'
+                            }
+                          },
+                          ticks: {
+                            autoSkip: true,
+                            maxRotation: 45,
+                            minRotation: 45,
+                            callback: function(value, index, ticks) {
+                              // value is the timestamp or ISO string
+                              const date = new Date(value);
+                              if (date.getHours() === 0) {
+                                // Midnight: show date
+                                return date.toLocaleDateString(undefined, { month: '2-digit', day: '2-digit' });
+                              } else {
+                                // Other times: show time only
+                                return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+                              }
+                            }
+                          }
+                        },
+                        y: {
+                          beginAtZero: true,
+                          max: yMaxRounded,
+                          ticks: {
+                            stepSize: 20,
+                            callback: function(value) { return value; }
+                          }
+                        }
+                      }
+                    }
+                  });
+                });
+            });
+            </script>
+            {% endif %}
+          </div>
+        </div>
       </div>
     </div>
-    <div class="col-sm p-2">
-      <table class="table table-sm">
-        <thead>
-          <tr>
-            <th colspan="2" scope="col">Details</th>
-          </tr>
-        </thead>
-        <tbody style="background: #F2F6F9;">
-          <tr>
-            <th scope="row" style="background: #F2F6F9; text-align: left;">ID (hex)</th>
-            <td class="text-left">
-              {{ utils.convert_node_id_from_int_to_hex(node.id) }}
-            </td>
-          </tr>
-          <tr>
-            <th scope="row" style="background: #F2F6F9; text-align: left;">ID (int)</th>
-            <td class="text-left">
-              {{ node.id }}
-            </td>
-          </tr>
-          <tr>
-            <th scope="row" style="background: #F2F6F9; text-align: left;">Hardware</th>
-            <td class="text-left">
-              {% if node.hw_model %}
-              {% if node.hw_model in meshtastic_support.HardwareModel._value2member_map_ %}
-              {% if meshtastic_support.HardwareModel(node.hw_model) and meshtastic_support.HardwareModel(node.hw_model)
-              in
-              meshtastic_support.HARDWARE_PHOTOS %}
-              <img
-                src="images/hardware/{{ meshtastic_support.HARDWARE_PHOTOS[meshtastic_support.HardwareModel(node.hw_model)] }}"
-                alt="{{ meshtastic_support.HardwareModel(node.hw_model).name }}"
-                title="{{ meshtastic_support.HardwareModel(node.hw_model).name }}" class="rounded"
-                style="max-height: 100px;">
-              {% else %}
-              {{ meshtastic_support.HardwareModel(node.hw_model).name }}
-              {% endif %}
-              {% else %}
-              {{ node.hw_model }}
-              {% endif %}
-              {% else %}
-              Unknown
-              {% endif %}
-            </td>
-          </tr>
-          <tr>
-            <th scope="row" style="background: #F2F6F9; text-align: left;">Firmware version</th>
-            <td class="text-left">
-              {% if node.firmware_version %}
-              {{ node.firmware_version }}
-              {% else %}
-              Unknown
-              {% endif %}
-            </td>
-          </tr>
-          <tr>
-            <th scope="row" style="background: #F2F6F9; text-align: left;">Role</th>
-            <td class="text-left">
-              {% if node.role is not none %}
-              {% if node.role == 0 %}
-              Client
-              {% elif node.role == 1 %}
-              Client Mute
-              {% elif node.role == 2 %}
-              Router
-              {% elif node.role == 3 %}
-              Router Client
-              {% elif node.role == 4 %}
-              Repeater
-              {% elif node.role == 5 %}
-              Tracker
-              {% elif node.role == 6 %}
-              Sensor
-              {% elif node.role == 7 %}
-              ATAK
-              {% elif node.role == 8 %}
-              Client Hidden
-              {% elif node.role == 9 %}
-              Lost and Found
-              {% elif node.role == 10 %}
-              ATAK Tracker
-              {% else %}
-              Unknown
-              {% endif %}
-              {% else %}
-              Unknown
-              {% endif %}
-            </td>
-          </tr>
-          {% if node.position %}
-          <tr>
-            <th scope="row" style="background: #F2F6F9; text-align: left;">Position</th>
-            <td class="text-left">
-              {% if node.position and node.position.latitude_i and node.position.longitude_i %}
-              {{ node.position.longitude_i / 1e7 }}, {{ node.position.latitude_i / 1e7 }}
-              {% else %}
-              Unknown
-              {% endif %}
-            </td>
-          </tr>
-          <tr>
-            <th scope="row" style="background: #F2F6F9; text-align: left;">Grid Square</th>
-            <td class="text-left">
-              {% if node.position and node.position.latitude_i and node.position.longitude_i %}
-              {% set grid = utils.latlon_to_grid(node.position.latitude_i / 1e7, node.position.longitude_i / 1e7) %}
-              {{ grid }}
-              {% else %}
-              Unknown
-              {% endif %}
-            </td>
-          </tr>
-          <tr>
-            <th scope="row" style="background: #F2F6F9; text-align: left;">Location</th>
-            <td class="text-left">
-              {% if node.position and node.position.geocoded %}
-              {{ node.position.geocoded }}
-              {% else %}
-              Unknown
-              {% endif %}
-            </td>
-          </tr>
-          <tr>
-            <th scope="row" style="background: #F2F6F9; text-align: left;">Altitude</th>
-            <td class="text-left">
-              {% if node.position and node.position.altitude %}
-              {{ node.position.altitude }} m
-              {% else %}
-              Unknown
-              {% endif %}
-            </td>
-          </tr>
-          {% endif %}
-          <tr>
-            <th scope="row" style="background: #F2F6F9; text-align: left;">Status</th>
-            <td class="text-left">
-              {% if node.active %}
-              <span class="text-success">Online</span>
-              {% else %}
-              <span class="text-secondary">Offline</span>
-              {% endif %}
-            </td>
-          </tr>
-          <tr>
-            <th scope="row" style="background: #F2F6F9; text-align: left;">First Seen</th>
-            <td class="text-left">
-              {% if node.ts_created %}
-              {{ format_timestamp(node.ts_created) }}
-              {% else %}
-              Unknown
-              {% endif %}
-            </td>
-          </tr>
-          <tr>
-            <th scope="row" style="background: #F2F6F9; text-align: left;">Last Seen</th>
-            <td class="text-left">
-              {% if node.ts_seen %}
-              {{ format_timestamp(node.ts_seen) }} ({{ time_ago(node.ts_seen) }})
-              {% else %}
-              Unknown
-              {% endif %}
-            </td>
-          </tr>
-          <tr>
-            <th scope="row" style="background: #F2F6F9; text-align: left;">Owner</th>
-            <td class="text-left">
-              {% if node.owner_username %}
-              <a href='user_{{ node.owner_username }}.html'>{{ node.owner_username }}</a>
-              {% else %}
-              Unknown
-              {% endif %}
-            </td>
-          </tr>
-          <tr>
-            <th scope="row" style="background: #F2F6F9; text-align: left;">Updated via</th>
-            <td class="text-left">
-              {% if node.updated_via %}
-              {% set vid = utils.convert_node_id_from_int_to_hex(node.updated_via) %}
-              {% if node.updated_via == node.id %}
-              Self
-              {% elif vid in nodes %}
-              <a href='node_{{ vid }}.html'>{{ nodes[vid]["long_name"] }}</a>
-              {% else %}
-              {{ vid }}
-              {% endif %}
-              {% else %}
-              Unknown
-              {% endif %}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-      <table class="table table-striped table-sm">
-        <thead>
-          <tr>
-            <th colspan="4" scope="col">Heard (zero hop)</th>
-          </tr>
-          <tr>
-            <th scope="col">Node</th>
-            <th scope="col">Signal</th>
-            <th scope="col">Distance</th>
-            <th scope="col">Source</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% set processed_nodes = [] %}
-          
-          <!-- Process neighbor data first -->
-          {% for neighbor in node.neighbors %}
-            {% set nid = utils.convert_node_id_from_int_to_hex(neighbor.neighbor_id) %}
-            {% set nnode = nodes[nid] if nid in nodes else None %}
-            {% if nid not in processed_nodes %}
-              {% set processed_nodes = processed_nodes + [nid] %}
-              <tr>
-                <td>
-                  {% if nnode %}
-                  <a href="node_{{ nid }}.html">{{ nnode.short_name }}</a>
+    <!-- Right Column: Details, Heard Tables -->
+    <div class="col-12 col-md-6">
+      <div class="container px-0">
+        <table class="table table-striped table-sm details-table">
+          <thead>
+            <tr>
+              <th colspan="2" scope="col">Details</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row" class="details-label">ID (hex)</th>
+              <td class="text-left">
+                {{ utils.convert_node_id_from_int_to_hex(node.id) }}
+              </td>
+            </tr>
+            <tr>
+              <th scope="row" class="details-label">ID (int)</th>
+              <td class="text-left">
+                {{ node.id }}
+              </td>
+            </tr>
+            <tr>
+              <th scope="row" class="details-label">Hardware</th>
+              <td class="text-left">
+                {% if node.hw_model is not none and hardware(node.hw_model) in hardware_photos %}
+                <img
+                  src="images/hardware/{{ hardware_photos[hardware(node.hw_model)] }}"
+                  alt="{{ meshtastic_support.get_hardware_model_name(node.hw_model) }}"
+                  title="{{ meshtastic_support.get_hardware_model_name(node.hw_model) }}" class="rounded"
+                  style="max-height: 100px;">
+                {% endif %}
+                {{ meshtastic_support.get_hardware_model_name(node.hw_model) }}
+              </td>
+            </tr>
+            <tr>
+              <th scope="row" class="details-label">Firmware version</th>
+              <td class="text-left">
+                {% if node.firmware_version %}
+                {{ node.firmware_version }}
+                {% else %}
+                Unknown
+                {% endif %}
+                <a href="https://meshtastic.org/docs/configuration/module/mqtt/#map-reporting-enabled" target="_blank" title="Firmware version is only available when the device is connected to MQTT server with Map Reporting enabled">
+                  <i class="bi bi-question-circle text-muted" style="font-size: 0.9em;"></i>
+                </a>
+              </td>
+            </tr>
+            <tr>
+              <th scope="row" class="details-label">Channel</th>
+              <td class="text-left">
+                {% if node.channel %}
+                <span class="badge" style="background-color: {{ utils.get_channel_color(node.channel) }}; color: white; padding: 2px 6px; border-radius: 4px;" title="Channel {{ node.channel }} ({{ utils.get_channel_name(node.channel) }})">{{ utils.get_channel_name(node.channel, use_short_names=False) }}</span>
+                {% else %}
+                <span class="text-secondary">Unknown</span>
+                {% endif %}
+                
+                {% if node.has_default_channel is not none %}
+                  {% if node.has_default_channel %}
+                    <span class="badge bg-success ms-2" title="Node is using the default channel configuration">Default</span>
                   {% else %}
-                  <span class="text-secondary">UNK</span>
+                    <span class="badge bg-warning ms-2" title="Node is using a custom channel configuration">Custom</span>
                   {% endif %}
-                </td>
-                <td>
-                  SNR: {{ neighbor.snr }}
-                </td>
-                <td>
-                  {% if nid in nodes %}
-                  {% set dist = utils.calculate_distance_between_nodes(nodes[nid], node) %}
-                  {% if dist %}
-                    {% if nodes[nid].position and nodes[nid].position.latitude_i and nodes[nid].position.longitude_i and node.position and node.position.latitude_i and node.position.longitude_i %}
-                      <a href="https://heywhatsthat.com/profiler.html?show_grade=0&show_rise=0&include_grade=1&decimal_places=0&elev_source=0&ll1={{ node.position.latitude_i / 1e7 }},{{ node.position.longitude_i / 1e7 }}&ll2={{ nodes[nid].position.latitude_i / 1e7 }},{{ nodes[nid].position.longitude_i / 1e7 }}" 
-                        target="_blank" 
-                        title="View elevation profile">
-                        {{ dist }} km 🏔️
-                      </a>
-                    {% else %}
-                      {{ dist }} km
-                    {% endif %}
+                {% else %}
+                  <span class="badge bg-secondary ms-2" title="Default channel status unknown">Unknown</span>
+                {% endif %}
+                
+                <a href="https://meshtastic.org/docs/configuration/radio/channels/" target="_blank" title="Channel configuration information">
+                  <i class="bi bi-question-circle text-muted" style="font-size: 0.9em;"></i>
+                </a>
+              </td>
+            </tr>
+            <tr>
+              <th scope="row" class="details-label">Local Nodes</th>
+              <td class="text-left">
+                {% if node.num_online_local_nodes is not none %}
+                  {{ node.num_online_local_nodes }} nodes
+                {% else %}
+                  Unknown
+                {% endif %}
+                <a href="https://meshtastic.org/docs/configuration/module/mqtt/#map-reporting-enabled" target="_blank" title="Number of local nodes visible to this node (from mapreport)">
+                  <i class="bi bi-question-circle text-muted" style="font-size: 0.9em;"></i>
+                </a>
+              </td>
+            </tr>
+            <tr>
+              <th scope="row" class="details-label">LoRa Region</th>
+              <td class="text-left">
+                {% if node.region is not none %}
+                  {% if node.region == 1 %}
+                    US (915 MHz)
+                  {% elif node.region == 2 %}
+                    EU (433 MHz)
+                  {% elif node.region == 3 %}
+                    CN (470 MHz)
+                  {% elif node.region == 4 %}
+                    JP (923 MHz)
+                  {% elif node.region == 5 %}
+                    ANZ (915 MHz)
+                  {% elif node.region == 6 %}
+                    KR (920 MHz)
+                  {% elif node.region == 7 %}
+                    TW (920 MHz)
+                  {% elif node.region == 8 %}
+                    RU (868 MHz)
+                  {% elif node.region == 9 %}
+                    IN (865 MHz)
+                  {% elif node.region == 10 %}
+                    NZ (915 MHz)
+                  {% elif node.region == 11 %}
+                    TH (920 MHz)
+                  {% elif node.region == 12 %}
+                    LORA_24 (2.4 GHz)
+                  {% else %}
+                    Unknown ({{ node.region }})
                   {% endif %}
-                  {% endif %}
-                </td>
-                <td><span title="Neighbor data">N</span></td>
-              </tr>
+                {% else %}
+                  Unknown
+                {% endif %}
+                <a href="https://meshtastic.org/docs/configuration/radio/lora/" target="_blank" title="LoRa radio region preset">
+                  <i class="bi bi-question-circle text-muted" style="font-size: 0.9em;"></i>
+                </a>
+              </td>
+            </tr>
+            <tr>
+              <th scope="row" class="details-label">Modem Preset</th>
+              <td class="text-left">
+                {% if node.modem_preset is not none %}
+                  {{ utils.get_modem_preset_name(node.modem_preset) }}
+                {% else %}
+                  Unknown
+                {% endif %}
+                <a href="https://meshtastic.org/docs/configuration/radio/lora/" target="_blank" title="LoRa modem preset configuration">
+                  <i class="bi bi-question-circle text-muted" style="font-size: 0.9em;"></i>
+                </a>
+              </td>
+            </tr>
+            <tr>
+              <th scope="row" class="details-label">Role</th>
+              <td class="text-left">
+                {% if node.role is not none %}
+                {% if node.role == 0 %}
+                Client
+                {% elif node.role == 1 %}
+                Client Mute
+                {% elif node.role == 2 %}
+                Router
+                {% elif node.role == 3 %}
+                Router Client
+                {% elif node.role == 4 %}
+                Repeater
+                {% elif node.role == 5 %}
+                Tracker
+                {% elif node.role == 6 %}
+                Sensor
+                {% elif node.role == 7 %}
+                TAK
+                {% elif node.role == 8 %}
+                Client Hidden
+                {% elif node.role == 9 %}
+                Lost and Found
+                {% elif node.role == 10 %}
+                TAK Tracker
+                {% elif node.role == 11 %}
+                Router Late
+                {% elif node.role == 12 %}
+                Client Base
+                {% else %}
+                Unknown ({{ node.role }})
+                {% endif %}
+                {% else %}
+                Unknown
+                {% endif %}
+              </td>
+            </tr>
+            {% if node.position %}
+            <tr>
+              <th scope="row" class="details-label">Position</th>
+              <td class="text-left">
+                {% if node.position and node.position.latitude_i and node.position.longitude_i %}
+                {{ node.position.longitude_i / 1e7 }}, {{ node.position.latitude_i / 1e7 }}
+                <a href="/map.html?node={{ utils.convert_node_id_from_int_to_hex(node.id) }}" 
+                   class="btn btn-link btn-sm btn-mini ms-2" 
+                   title="View this node on the map">
+                  <i class="bi bi-map"></i> View on Map
+                </a>
+                {% else %}
+                Unknown
+                {% endif %}
+              </td>
+            </tr>
+            <tr>
+              <th scope="row" class="details-label">Grid Square</th>
+              <td class="text-left">
+                {% if node.position and node.position.latitude_i and node.position.longitude_i %}
+                {% set grid = utils.latlon_to_grid(node.position.latitude_i / 1e7, node.position.longitude_i / 1e7) %}
+                {{ grid }}
+                {% else %}
+                Unknown
+                {% endif %}
+              </td>
+            </tr>
+            <tr>
+              <th scope="row" class="details-label">Location</th>
+              <td class="text-left">
+                {% if node.position and node.position.geocoded %}
+                {{ node.position.geocoded }}
+                {% else %}
+                Unknown
+                {% endif %}
+              </td>
+            </tr>
+            <tr>
+              <th scope="row" class="details-label">Altitude</th>
+              <td class="text-left">
+                {% if node.position and node.position.altitude %}
+                {{ node.position.altitude }} m
+                {% else %}
+                Unknown
+                {% endif %}
+              </td>
+            </tr>
             {% endif %}
-          {% endfor %}
-          
-          <!-- Process message reception data -->
-          {% if zero_hop_heard %}
-            {% for heard in zero_hop_heard %}
-              {% set nid = utils.convert_node_id_from_int_to_hex(heard.from_id) %}
+            <tr>
+              <th scope="row" class="details-label">Status</th>
+              <td class="text-left">
+                {% if node.active %}
+                <span class="text-success">Online</span>
+                {% else %}
+                <span class="text-secondary">Offline</span>
+                {% endif %}
+              </td>
+            </tr>
+            <tr>
+              <th scope="row" class="details-label">First Seen</th>
+              <td class="text-left">
+                {% if node.ts_created %}
+                {{ format_timestamp(node.ts_created) }}
+                {% else %}
+                Unknown
+                {% endif %}
+              </td>
+            </tr>
+            <tr>
+              <th scope="row" class="details-label">Last Seen</th>
+              <td class="text-left">
+                {% if node.ts_seen %}
+                {{ format_timestamp(node.ts_seen) }} ({{ time_ago(node.ts_seen) }})
+                {% else %}
+                Unknown
+                {% endif %}
+              </td>
+            </tr>
+            <tr>
+              <th scope="row" class="details-label">Owner</th>
+              <td class="text-left">
+                {% if node.owner_username %}
+                <a href='user_{{ node.owner_username }}.html'>{{ node.owner_username }}</a>
+                {% else %}
+                Unknown
+                {% endif %}
+              </td>
+            </tr>
+            <tr>
+              <th scope="row" class="details-label">Updated via</th>
+              <td class="text-left">
+                {% if node.updated_via %}
+                {% set vid = utils.convert_node_id_from_int_to_hex(node.updated_via) %}
+                {% if node.updated_via == node.id %}
+                Self
+                {% elif vid in linked_nodes_details %}
+                <a href='node_{{ vid }}.html'>{{ linked_nodes_details[vid]["long_name"] }}</a>
+                {% else %}
+                {{ vid }}
+                {% endif %}
+                {% else %}
+                Unknown
+                {% endif %}
+              </td>
+            </tr>
+            {% if elsewhere_links %}
+            <tr>
+              <th scope="row" class="details-label">Elsewhere</th>
+              <td class="text-left">
+                {% for label, url, icon in elsewhere_links %}
+                  <a href="{{ url }}" target="_blank" class="me-2">{{ icon }} {{ label }}</a>
+                {% endfor %}
+                <a href="logs.html?node={{ utils.convert_node_id_from_int_to_hex(node.id) }}" target="_blank">📋 Logs</a>
+              </td>
+            </tr>
+            {% endif %}
+            
+          </tbody>
+        </table>
+        <table class="table table-striped table-sm heard-table">
+          <thead>
+            <tr>
+              <th colspan="4" scope="col">Heard (zero hop)</th>
+            </tr>
+            <tr>
+              <th scope="col">Node</th>
+              <th scope="col">Signal</th>
+              <th scope="col">Distance</th>
+              <th scope="col">Source</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% set processed_nodes = [] %}
+            
+            <!-- Process neighbor data first -->
+            {% for neighbor in node.neighbors %}
+              {% set nid = utils.convert_node_id_from_int_to_hex(neighbor.neighbor_id) %}
+              {% set nnode = linked_nodes_details[nid] if nid in linked_nodes_details else None %}
               {% if nid not in processed_nodes %}
                 {% set processed_nodes = processed_nodes + [nid] %}
                 <tr>
                   <td>
-                    {% if nid in nodes %}
-                    <a href="node_{{ nid }}.html">{{ nodes[nid].short_name }}</a>
+                    {% if nnode %}
+                    <a href="node_{{ nid }}.html">{{ nnode.short_name }}</a>
                     {% else %}
                     <span class="text-secondary">UNK</span>
                     {% endif %}
                   </td>
                   <td>
-                    SNR: {{ heard.best_snr }} max / {{ heard.avg_snr|round(1) }} avg
+                    SNR: {{ neighbor.snr }}
                   </td>
                   <td>
-                    {% if nid in nodes %}
-                    {% set dist = utils.calculate_distance_between_nodes(nodes[nid], node) %}
-                    {% if dist %}
-                      {% if nodes[nid].position and nodes[nid].position.latitude_i and nodes[nid].position.longitude_i and node.position and node.position.latitude_i and node.position.longitude_i %}
-                        <a href="https://heywhatsthat.com/profiler.html?show_grade=0&show_rise=0&include_grade=1&decimal_places=0&elev_source=0&ll1={{ node.position.latitude_i / 1e7 }},{{ node.position.longitude_i / 1e7 }}&ll2={{ nodes[nid].position.latitude_i / 1e7 }},{{ nodes[nid].position.longitude_i / 1e7 }}" 
-                          target="_blank" 
-                          title="View elevation profile">
-                          {{ dist }} km 🏔️
-                        </a>
-                      {% else %}
-                        {{ dist }} km
+                    {% if nid in linked_nodes_details %}
+                      {% if linked_nodes_details[nid].position and node.position %}
+                        {% if linked_nodes_details[nid].position.latitude_i is not none and linked_nodes_details[nid].position.longitude_i is not none and node.position.latitude_i is not none and node.position.longitude_i is not none %}
+                          {% set dist = utils.calculate_distance_between_nodes(linked_nodes_details[nid], node) %}
+                          {% if dist %}
+                            <a href="https://heywhatsthat.com/profiler.html?show_grade=0&show_rise=0&include_grade=1&decimal_places=0&elev_source=0&ll1={{ node.position.latitude_i / 1e7 }},{{ node.position.longitude_i / 1e7 }}&ll2={{ linked_nodes_details[nid].position.latitude_i / 1e7 }},{{ linked_nodes_details[nid].position.longitude_i / 1e7 }}" 
+                              target="_blank" 
+                              title="View elevation profile">
+                              {{ dist|round(2) }} km 🏔️
+                            </a>
+                          {% endif %}
+                        {% endif %}
                       {% endif %}
                     {% endif %}
-                    {% endif %}
                   </td>
-                  <td><span title="Message data">M</span> ({{ heard.count }}) <small title="Last heard at {{ format_timestamp(heard.last_rx_time) }}">{{ time_ago(heard.last_rx_time) }}</small></td>
+                  <td><span title="Neighbor data">N</span></td>
                 </tr>
               {% endif %}
             {% endfor %}
-          {% endif %}
-        </tbody>
-      </table>
-
-      <table class="table table-striped table-sm">
-        <thead>
-          <tr>
-            <th colspan="4" scope="col">Heard By (zero hop)</th>
-          </tr>
-          <tr>
-            <th scope="col">Node</th>
-            <th scope="col">Signal</th>
-            <th scope="col">Distance</th>
-            <th scope="col">Source</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% set processed_nodes = [] %}
-          
-          <!-- Process neighbor data first -->
-          {% for id, nnode in nodes.items() %}
-            {% if nnode.neighbors %}
-              {% for neighbor in nnode.neighbors %}
-                {% if neighbor.neighbor_id == node.id and id not in processed_nodes %}
-                  {% set processed_nodes = processed_nodes + [id] %}
+            
+            <!-- Process message reception data -->
+            {% if zero_hop_heard %}
+              {% for heard in zero_hop_heard %}
+                {% set nid = utils.convert_node_id_from_int_to_hex(heard.from_id) %}
+                {% if nid not in processed_nodes %}
+                  {% set processed_nodes = processed_nodes + [nid] %}
                   <tr>
                     <td>
-                      {% if id in nodes %}
-                      <a href="node_{{ id }}.html">{{ nodes[id].short_name }}</a>
+                      {% if nid in linked_nodes_details %}
+                      <a href="node_{{ nid }}.html">{{ linked_nodes_details[nid].short_name }}</a>
                       {% else %}
                       <span class="text-secondary">UNK</span>
                       {% endif %}
                     </td>
                     <td>
-                      SNR: {{ neighbor.snr }}
+                      SNR: {{ heard.best_snr }} max / {{ heard.avg_snr|round(1) }} avg
                     </td>
                     <td>
-                      {% if nid in nodes %}
-                      {% set dist = utils.calculate_distance_between_nodes(nodes[nid], node) %}
+                      {% if nid in linked_nodes_details %}
+                      {% set dist = utils.calculate_distance_between_nodes(linked_nodes_details[nid], node) %}
                       {% if dist %}
-                        {% if nodes[nid].position and nodes[nid].position.latitude_i and nodes[nid].position.longitude_i and node.position and node.position.latitude_i and node.position.longitude_i %}
-                          <a href="https://heywhatsthat.com/profiler.html?show_grade=0&show_rise=0&include_grade=1&decimal_places=0&elev_source=0&ll1={{ node.position.latitude_i / 1e7 }},{{ node.position.longitude_i / 1e7 }}&ll2={{ nodes[nid].position.latitude_i / 1e7 }},{{ nodes[nid].position.longitude_i / 1e7 }}" 
+                        {% if linked_nodes_details[nid].position and linked_nodes_details[nid].position.latitude_i and linked_nodes_details[nid].position.longitude_i and node.position and node.position.latitude_i and node.position.longitude_i %}
+                          <a href="https://heywhatsthat.com/profiler.html?show_grade=0&show_rise=0&include_grade=1&decimal_places=0&elev_source=0&ll1={{ node.position.latitude_i / 1e7 }},{{ node.position.longitude_i / 1e7 }}&ll2={{ linked_nodes_details[nid].position.latitude_i / 1e7 }},{{ linked_nodes_details[nid].position.longitude_i / 1e7 }}" 
                             target="_blank" 
                             title="View elevation profile">
-                            {{ dist }} km 🏔️
+                            {{ dist|round(2) }} km 🏔️
                           </a>
                         {% else %}
-                          {{ dist }} km
+                          {{ dist|round(2) }} km
                         {% endif %}
                       {% endif %}
                       {% endif %}
                     </td>
-                    <td><span title="Neighbor data">N</span></td>
+                    <td><span title="Message data">M</span> ({{ heard.count }}) <small title="Last heard at {{ format_timestamp(heard.last_rx_time) }}">{{ time_ago(heard.last_rx_time) }}</small></td>
                   </tr>
                 {% endif %}
               {% endfor %}
             {% endif %}
-          {% endfor %}
-          
-          <!-- Process message reception data -->
-          {% if zero_hop_heard_by %}
-            {% for heard in zero_hop_heard_by %}
-              {% set nid = utils.convert_node_id_from_int_to_hex(heard.received_by_id) %}
+          </tbody>
+        </table>
+
+        <table class="table table-striped table-sm heard-table">
+          <thead>
+            <tr>
+              <th colspan="4" scope="col">Heard By (zero hop)</th>
+            </tr>
+            <tr>
+              <th scope="col">Node</th>
+              <th scope="col">Signal</th>
+              <th scope="col">Distance</th>
+              <th scope="col">Source</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% set processed_nodes = [] %}
+            
+            <!-- Process neighbor data first -->
+            {% for neighbor in neighbor_heard_by %}
+              {% set nid = utils.convert_node_id_from_int_to_hex(neighbor.id) %}
               {% if nid not in processed_nodes %}
                 {% set processed_nodes = processed_nodes + [nid] %}
                 <tr>
                   <td>
-                    {% if nid in nodes %}
-                    <a href="node_{{ nid }}.html">{{ nodes[nid].short_name }}</a>
+                    {% if nid in linked_nodes_details %}
+                    <a href="node_{{ nid }}.html">{{ linked_nodes_details[nid].short_name }}</a>
                     {% else %}
                     <span class="text-secondary">UNK</span>
                     {% endif %}
                   </td>
                   <td>
-                    SNR: {{ heard.best_snr }} max / {{ heard.avg_snr|round(1) }} avg
+                    SNR: {{ neighbor.snr }}
                   </td>
                   <td>
-                    {% if nid in nodes %}
-                    {% set dist = utils.calculate_distance_between_nodes(nodes[nid], node) %}
-                    {% if dist %}
-                      {% if nodes[nid].position and nodes[nid].position.latitude_i and nodes[nid].position.longitude_i and node.position and node.position.latitude_i and node.position.longitude_i %}
-                        <a href="https://heywhatsthat.com/profiler.html?show_grade=0&show_rise=0&include_grade=1&decimal_places=0&elev_source=0&ll1={{ node.position.latitude_i / 1e7 }},{{ node.position.longitude_i / 1e7 }}&ll2={{ nodes[nid].position.latitude_i / 1e7 }},{{ nodes[nid].position.longitude_i / 1e7 }}" 
-                          target="_blank" 
-                          title="View elevation profile">
-                          {{ dist }} km 🏔️
-                        </a>
-                      {% else %}
-                        {{ dist }} km
+                    {% if nid in linked_nodes_details %}
+                      {% if linked_nodes_details[nid].position and node.position %}
+                        {% if linked_nodes_details[nid].position.latitude_i is not none and linked_nodes_details[nid].position.longitude_i is not none and node.position.latitude_i is not none and node.position.longitude_i is not none %}
+                          {% set dist = utils.calculate_distance_between_nodes(linked_nodes_details[nid], node) %}
+                          {% if dist %}
+                            <a href="https://heywhatsthat.com/profiler.html?show_grade=0&show_rise=0&include_grade=1&decimal_places=0&elev_source=0&ll1={{ node.position.latitude_i / 1e7 }},{{ node.position.longitude_i / 1e7 }}&ll2={{ linked_nodes_details[nid].position.latitude_i / 1e7 }},{{ linked_nodes_details[nid].position.longitude_i / 1e7 }}" 
+                              target="_blank" 
+                              title="View elevation profile">
+                              {{ dist|round(2) }} km 🏔️
+                            </a>
+                          {% endif %}
+                        {% endif %}
                       {% endif %}
                     {% endif %}
-                    {% endif %}
                   </td>
-                  <td><span title="Message data">M</span> <span title="Number of messages received">({{ heard.count }})</span> <small title="Last heard at {{ format_timestamp(heard.last_rx_time) }}">{{ time_ago(heard.last_rx_time) }}</small></td>
+                  <td><span title="Neighbor data">N</span></td>
                 </tr>
               {% endif %}
             {% endfor %}
-          {% endif %}
-        </tbody>
-      </table>
+            
+            <!-- Process message reception data -->
+            {% if zero_hop_heard_by %}
+              {% for heard in zero_hop_heard_by %}
+                {% set nid = utils.convert_node_id_from_int_to_hex(heard.received_by_id) %}
+                {% if nid not in processed_nodes %}
+                  {% set processed_nodes = processed_nodes + [nid] %}
+                  <tr>
+                    <td>
+                      {% if nid in linked_nodes_details %}
+                      <a href="node_{{ nid }}.html">{{ linked_nodes_details[nid].short_name }}</a>
+                      {% else %}
+                      <span class="text-secondary">UNK</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      SNR: {{ heard.best_snr }} max / {{ heard.avg_snr|round(1) }} avg
+                    </td>
+                    <td>
+                      {% if nid in linked_nodes_details %}
+                      {% set dist = utils.calculate_distance_between_nodes(linked_nodes_details[nid], node) %}
+                      {% if dist %}
+                        {% if linked_nodes_details[nid].position and linked_nodes_details[nid].position.latitude_i and linked_nodes_details[nid].position.longitude_i and node.position and node.position.latitude_i and node.position.longitude_i %}
+                          <a href="https://heywhatsthat.com/profiler.html?show_grade=0&show_rise=0&include_grade=1&decimal_places=0&elev_source=0&ll1={{ node.position.latitude_i / 1e7 }},{{ node.position.longitude_i / 1e7 }}&ll2={{ linked_nodes_details[nid].position.latitude_i / 1e7 }},{{ linked_nodes_details[nid].position.longitude_i / 1e7 }}" 
+                            target="_blank" 
+                            title="View elevation profile">
+                          {{ dist|round(2) }} km 🏔️
+                        </a>
+                      {% else %}
+                        {{ dist|round(2) }} km
+                      {% endif %}
+                      {% endif %}
+                      {% endif %}
+                    </td>
+                    <td><span title="Message data">M</span> <span title="Number of messages received">({{ heard.count }})</span> <small title="Last heard at {{ format_timestamp(heard.last_rx_time) }}">{{ time_ago(heard.last_rx_time) }}</small></td>
+                  </tr>
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
-  {% if los_profiles %}
-  <div class="w-100 mt-2 text-center fw-bold p-2" style="background: #D7F9FF;">Line-of-sight with nodes in 20km radius</div>
-  <div class="row">
-    {% for id, data in los_profiles.items()|sort(attribute='1.distance') %}
-    <div class="col-sm-6 p-2">
-      <a href="node_{{ id }}.html"><img class="w-100" src="data:image/jpeg;base64,{{ data.image }}"></a>
+  <!-- Environmental Telemetry Section at the Bottom, Full Width -->
+  {% if node.telemetry %}
+  <div class="row mt-4">
+    <div class="col-12">
+      <div class="w-100" id="environmentalTelemetryContainer" style="display:none;">
+        <h6 class="mb-2">Environmental Telemetry</h6>
+        <div class="d-flex flex-row align-items-center flex-nowrap gap-2 gap-md-4 mb-2">
+          <div id="timeRangeBtnGroup" class="btn-group btn-group-sm" role="group">
+            <button type="button" class="btn btn-outline-secondary active" data-days="1">24h</button>
+            <button type="button" class="btn btn-outline-secondary" data-days="7">7d</button>
+          </div>
+          <!-- Telemetry selector: horizontal tabs on md+, dropdown on mobile -->
+          <div id="environmentalTabs" class="btn-group btn-group-sm d-none d-md-flex ms-4" role="group">
+            <!-- Tabs will be dynamically generated here -->
+          </div>
+          <select id="environmentalDropdown" class="form-select form-select-sm d-block d-md-none ms-2 border border-2 border-primary rounded fw-semibold text-primary font-monospace my-1" style="min-width: 140px; max-width: 60vw;" aria-label="Select telemetry type">
+            <!-- Options will be dynamically generated here -->
+          </select>
+        </div>
+        <div id="environmentalChartContainer">
+          <canvas id="environmentalChart" height="200"></canvas>
+        </div>
+      </div>
+      <script>
+      document.addEventListener('DOMContentLoaded', function() {
+        const envContainer = document.getElementById('environmentalTelemetryContainer');
+        const envChartContainer = document.getElementById('environmentalChartContainer');
+        const envCanvas = document.getElementById('environmentalChart');
+        const tabsContainer = document.getElementById('environmentalTabs');
+        const dropdown = document.getElementById('environmentalDropdown');
+        const timeRangeBtnGroup = document.getElementById('timeRangeBtnGroup');
+        let selectedDays = 1;
+        let currentData = null;
+        let currentAvailableTypes = {};
+        let currentTypeKey = null;
+
+        function updateTimeRangeButtons() {
+          timeRangeBtnGroup.querySelectorAll('button').forEach(btn => {
+            if (parseInt(btn.getAttribute('data-days')) === selectedDays) {
+              btn.classList.add('active');
+            } else {
+              btn.classList.remove('active');
+            }
+          });
+        }
+
+        function loadEnvironmentalTelemetry() {
+          updateTimeRangeButtons();
+          const days = selectedDays;
+          envChartContainer.innerHTML = '<div class="text-center text-muted"><i class="spinner-border spinner-border-sm me-2"></i>Loading telemetry data...</div>';
+          fetch(`/api/environmental-telemetry/{{ node.id }}?days=${days}`)
+            .then(response => response.json())
+            .then(data => {
+              currentData = data;
+              if (!data || data.length === 0) {
+                return;
+              }
+              const envTypes = {
+                'temperature': { label: 'Temperature', unit: '°C', color: '#FF6B6B' },
+                'barometric_pressure': { label: 'Pressure', unit: 'hPa', color: '#4ECDC4' },
+                'gas_resistance': { label: 'Air Quality', unit: 'Ω', color: '#45B7D1' },
+                'relative_humidity': { label: 'Humidity', unit: '%', color: '#96CEB4' },
+                'voltage': { label: 'Voltage', unit: 'V', color: '#FFEAA7' },
+                'current': { label: 'Current', unit: 'A', color: '#DDA0DD' }
+              };
+              currentAvailableTypes = {};
+              for (const [key, config] of Object.entries(envTypes)) {
+                let nonNullCount = 0;
+                if (key === 'voltage') {
+                  // Only count voltage values that are > 0
+                  nonNullCount = data.reduce((acc, d) => (d[key] !== null && d[key] !== undefined && d[key] > 0 ? acc + 1 : acc), 0);
+                } else {
+                  nonNullCount = data.reduce((acc, d) => (d[key] !== null && d[key] !== undefined ? acc + 1 : acc), 0);
+                }
+                if (nonNullCount > 0) {
+                  currentAvailableTypes[key] = config;
+                }
+              }
+              if (Object.keys(currentAvailableTypes).length === 0) {
+                return;
+              }
+              envContainer.style.display = '';
+              // --- TABS (md+) ---
+              tabsContainer.innerHTML = '';
+              const typeKeys = Object.keys(currentAvailableTypes);
+              typeKeys.forEach((typeKey, index) => {
+                const config = currentAvailableTypes[typeKey];
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = `btn btn-outline-secondary${index === 0 ? ' active' : ''}`;
+                button.textContent = config.label;
+                button.onclick = function() { selectTelemetryType(typeKey); };
+                tabsContainer.appendChild(button);
+              });
+              // --- DROPDOWN (mobile) ---
+              dropdown.innerHTML = '';
+              typeKeys.forEach((typeKey, index) => {
+                const config = currentAvailableTypes[typeKey];
+                const option = document.createElement('option');
+                option.value = typeKey;
+                option.textContent = config.label;
+                dropdown.appendChild(option);
+              });
+              // Set initial selection
+              let initialType = typeKeys[0];
+              if (currentTypeKey && typeKeys.includes(currentTypeKey)) {
+                initialType = currentTypeKey;
+              }
+              selectTelemetryType(initialType);
+              dropdown.value = initialType;
+            });
+        }
+        // Handle time range button group
+        timeRangeBtnGroup.querySelectorAll('button').forEach(btn => {
+          btn.addEventListener('click', function() {
+            selectedDays = parseInt(this.getAttribute('data-days'));
+            updateTimeRangeButtons();
+            loadEnvironmentalTelemetry();
+          });
+        });
+        // On initial load, ensure correct button is active
+        updateTimeRangeButtons();
+        // Handle dropdown change
+        dropdown.addEventListener('change', function() {
+          selectTelemetryType(this.value);
+        });
+        // Handle tab click (delegated)
+        function selectTelemetryType(typeKey) {
+          currentTypeKey = typeKey;
+          // Update tab active state
+          tabsContainer.querySelectorAll('button').forEach(btn => {
+            if (btn.textContent === currentAvailableTypes[typeKey].label) {
+              btn.classList.add('active');
+            } else {
+              btn.classList.remove('active');
+            }
+          });
+          // Update dropdown value
+          dropdown.value = typeKey;
+          // Show chart
+          showEnvironmentalChart(typeKey, currentAvailableTypes[typeKey], currentData);
+        }
+        function showEnvironmentalChart(typeKey, config, data) {
+          if (window.environmentalChart && typeof window.environmentalChart.destroy === 'function') {
+            window.environmentalChart.destroy();
+          }
+          const values = data.map(d => d[typeKey]);
+          const labels = data.map(d => new Date(d.ts_created * 1000).toISOString());
+          const validData = [];
+          const validLabels = [];
+          values.forEach((value, index) => {
+            if (value !== null && value !== undefined) {
+              validData.push(value);
+              validLabels.push(labels[index]);
+            }
+          });
+          if (validData.length === 0) {
+            envCanvas.style.display = 'none';
+            const msg = document.createElement('div');
+            msg.className = 'text-center text-muted';
+            msg.innerText = `No ${config.label} data available`;
+            envChartContainer.innerHTML = '';
+            envChartContainer.appendChild(msg);
+            return;
+          }
+          envCanvas.style.display = '';
+          envChartContainer.innerHTML = '<canvas id="environmentalChart" height="200"></canvas>';
+          const newCanvas = document.getElementById('environmentalChart');
+          const ctx = newCanvas.getContext('2d');
+          const minValue = Math.min(...validData);
+          const maxValue = Math.max(...validData);
+          const range = maxValue - minValue;
+          const padding = range * 0.1;
+          let yMin = minValue - padding;
+          let yMax = maxValue + padding;
+          if (typeKey === 'relative_humidity') {
+            yMin = Math.max(0, yMin);
+            yMax = Math.min(100, yMax);
+          } else if (typeKey === 'voltage') {
+            yMin = Math.max(0, yMin);
+          } else if (typeKey === 'barometric_pressure') {
+            yMin = Math.max(800, yMin);
+            yMax = Math.min(1200, yMax);
+          }
+          window.environmentalChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+              labels: validLabels,
+              datasets: [{
+                label: `${config.label} (${config.unit})`,
+                data: validData,
+                borderColor: config.color,
+                backgroundColor: config.color + '20',
+                fill: false,
+                tension: 0.2,
+                pointRadius: 2,
+                spanGaps: true,
+                borderWidth: 2,
+              }]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { 
+                  display: true,
+                  position: 'top'
+                },
+                title: { 
+                  display: true, 
+                  text: `${config.label} - ${selectedDays === 1 ? '24hr' : '7 Day'} Data`,
+                  font: { size: 14 }
+                }
+              },
+              scales: {
+                x: {
+                  type: 'time',
+                  time: {
+                    unit: selectedDays === 1 ? 'hour' : 'day',
+                    stepSize: selectedDays === 1 ? 3 : 1,
+                    displayFormats: {
+                      hour: 'HH:mm',
+                      day: 'MM/dd'
+                    }
+                  },
+                  ticks: {
+                    autoSkip: true,
+                    maxRotation: 45,
+                    minRotation: 45,
+                    callback: function(value, index, ticks) {
+                      const date = new Date(value);
+                      if (selectedDays === 1) {
+                        if (date.getHours() === 0) {
+                          return date.toLocaleDateString(undefined, { month: '2-digit', day: '2-digit' });
+                        } else {
+                          return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+                        }
+                      } else {
+                        return date.toLocaleDateString(undefined, { month: '2-digit', day: '2-digit' });
+                      }
+                    }
+                  }
+                },
+                y: {
+                  beginAtZero: false,
+                  min: yMin,
+                  max: yMax,
+                  ticks: {
+                    callback: function(value) { 
+                      return value.toFixed(2); 
+                    }
+                  }
+                }
+              }
+            }
+          });
+        }
+        // Initial load
+        loadEnvironmentalTelemetry();
+      });
+      </script>
     </div>
-    {% endfor %}
   </div>
   {% endif %}
 </div>
 <script type="module">
-  var defaultStyle = new ol.style.Style({
-    image: new ol.style.Circle({
-      radius: 6,
-      fill: new ol.style.Fill({
-        color: 'rgba(0, 0, 240, 1)'
-      }),
-      stroke: new ol.style.Stroke({
-        color: 'white',
-        width: 2
-      })
-    })
-  });
+import Map from 'ol/Map.js';
+import View from 'ol/View.js';
+import TileLayer from 'ol/layer/Tile.js';
+import OSM from 'ol/source/OSM.js';
+import VectorLayer from 'ol/layer/Vector.js';
+import VectorSource from 'ol/source/Vector.js';
+import Feature from 'ol/Feature.js';
+import Point from 'ol/geom/Point.js';
+import LineString from 'ol/geom/LineString.js';
+import {fromLonLat} from 'ol/proj.js';
+import Style from 'ol/style/Style.js';
+import Circle from 'ol/style/Circle.js';
+import Fill from 'ol/style/Fill.js';
+import Stroke from 'ol/style/Stroke.js';
 
-  var offlineStyle = new ol.style.Style({
-    image: new ol.style.Circle({
-      radius: 6,
-      fill: new ol.style.Fill({
-        color: 'rgba(0, 0, 0, 0.50)'
-      }),
-      stroke: new ol.style.Stroke({
-        color: 'white',
-        width: 2
-      })
-    })
-  });
-
-  var onlineStyle = new ol.style.Style({
-    image: new ol.style.Circle({
-      radius: 6,
-      fill: new ol.style.Fill({
-        color: 'rgba(50, 240, 50, 1)'
-      }),
-      stroke: new ol.style.Stroke({
-        color: 'white',
-        width: 2
-      })
-    })
-  });
-
-  var node = {
-    id: '{{ node.id }}',
-    short_name: '{{ node.short_name }}',
-    long_name: '{{ node.long_name }}',
-    last_seen: '{{ node.last_seen }}',
-    position: {
-      latitude: 38.575764,
-      longitude: -121.478851
-    },
-    active: {{ node.active | tojson }},
-    };
-  
-  const coordinates = {{ node_route|tojson|safe }};
-
-
-  // Convert coordinates to OpenLayers format
-  const route = new ol.geom.LineString(coordinates.map(coord => ol.proj.fromLonLat(coord)));
-
-  // Create a feature for the route
-  const routeFeature = new ol.Feature({
-      geometry: route
-  });
-
-  // Style the route line
-  routeFeature.setStyle(new ol.style.Style({
-      stroke: new ol.style.Stroke({
-          color: 'cyan',
-          width: 2
-      })
-  }));
-
-  // Create a vector source and layer
-  const vectorSource = new ol.source.Vector({
-      features: [routeFeature]
-  });
-
-  const vectorLayer = new ol.layer.Vector({
-      source: vectorSource
-  });
-
-
-  {% if node.position and node.position.longitude_i and node.position.latitude_i %}
-  node.position.latitude = {{ node.position.latitude_i / 1e7 }};
-  node.position.longitude = {{ node.position.longitude_i / 1e7 }};
-  {% endif %}
-
-  {% if node.position and node.position.altitude %}
-  node.position.altitude = {{ node.position.altitude }};
-  {% endif %}
-
-  {% if node.position and node.position.latitude_i and node.position.longitude_i %}
-  const map = new ol.Map({
-    layers: [
-      new ol.layer.Tile({
-        source: new ol.source.OSM(),
-      }),
-    ],
-    target: 'map',
-    view: new ol.View({
-      center: ol.proj.fromLonLat([node.position.longitude, node.position.latitude]),
-      zoom: 12,
+var defaultStyle = new Style({
+  image: new Circle({
+    radius: 6,
+    fill: new Fill({
+      color: 'rgba(0, 0, 240, 1)'
     }),
-  });
-
-  var features = [];
-  var feature = new ol.Feature({
-    geometry: new ol.geom.Point(ol.proj.fromLonLat([node.position.longitude, node.position.latitude])),
-    node: node,
-  });
-  if (node.active) {
-    feature.setStyle(onlineStyle);
-  } else {
-    feature.setStyle(offlineStyle);
-  }
-  features.push(feature);
-
-  const layer = new ol.layer.Vector({
-    style: defaultStyle,
-    source: new ol.source.Vector({
-      features: features
+    stroke: new Stroke({
+      color: 'white',
+      width: 2
     })
-  });
-  map.addLayer(layer);
-  map.addLayer(vectorLayer);
-  {% endif %}
+  })
+});
 
+var offlineStyle = new Style({
+  image: new Circle({
+    radius: 6,
+    fill: new Fill({
+      color: 'rgba(0, 0, 0, 0.50)'
+    }),
+    stroke: new Stroke({
+      color: 'white',
+      width: 2
+    })
+  })
+});
+
+var onlineStyle = new Style({
+  image: new Circle({
+    radius: 6,
+    fill: new Fill({
+      color: 'rgba(50, 240, 50, 1)'
+    }),
+    stroke: new Stroke({
+      color: 'white',
+      width: 2
+    })
+  })
+});
+
+var node = {
+  id: '{{ node.id }}',
+  short_name: {{ node.short_name | tojson }},
+  long_name: {{ node.long_name | tojson }},
+  last_seen: '{{ node.last_seen }}',
+  position: {
+    latitude: 38.575764,
+    longitude: -121.478851
+  },
+  active: {{ node.active | tojson }},
+};
+
+const coordinates = {{ node_route|tojson|safe }};
+
+// Convert coordinates to OpenLayers format
+const route = new LineString(coordinates.map(coord => fromLonLat(coord)));
+
+// Create a feature for the route
+const routeFeature = new Feature({
+    geometry: route
+});
+
+// Style the route line
+routeFeature.setStyle(new Style({
+    stroke: new Stroke({
+        color: 'cyan',
+        width: 2
+    })
+}));
+
+// Create a feature for the node
+{% if node.position and node.position.longitude_i and node.position.latitude_i %}
+node.position.latitude = {{ node.position.latitude_i / 1e7 }};
+node.position.longitude = {{ node.position.longitude_i / 1e7 }};
+{% endif %}
+
+{% if node.position and node.position.altitude %}
+node.position.altitude = {{ node.position.altitude }};
+{% endif %}
+
+var features = [];
+{% if node.position and node.position.longitude_i and node.position.latitude_i %}
+var feature = new Feature({
+  geometry: new Point(fromLonLat([node.position.longitude, node.position.latitude])),
+  node: node,
+});
+if (node.active) {
+  feature.setStyle(onlineStyle);
+} else {
+  feature.setStyle(offlineStyle);
+}
+features.push(feature);
+features.push(routeFeature);
+
+const vectorSource = new VectorSource({
+  features: features
+});
+
+const vectorLayer = new VectorLayer({
+  source: vectorSource
+});
+
+const map = new Map({
+  layers: [
+    new TileLayer({
+      source: new OSM(),
+    }),
+    vectorLayer
+  ],
+  target: 'map',
+  view: new View({
+    center: fromLonLat([node.position.longitude, node.position.latitude]),
+    zoom: 12,
+  }),
+});
+{% endif %}
 </script>
 <style>
   #map {

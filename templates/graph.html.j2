@@ -2,6 +2,10 @@
 {% extends "layout.html.j2" %}
 
 {% block title %}Graph | MeshInfo{% endblock %}
+{% block og_title %}Network Graph | {{ config['mesh']['name'] }}{% endblock %}
+{% block og_description %}Visualize the full {{ config['mesh']['short_name'] }} mesh network: see node connectivity, links, and network structure in real time.{% endblock %}
+{% block twitter_title %}Network Graph | {{ config['mesh']['name'] }}{% endblock %}
+{% block twitter_description %}Visualize the full {{ config['mesh']['short_name'] }} mesh network: see node connectivity, links, and network structure in real time.{% endblock %}
 {% block content %}
   <div class="container pt-3">
   <h5>{{ this_page.title() }}</h5>
@@ -11,21 +15,180 @@
   <script src="https://cdn.anychart.com/releases/8.13.0/js/anychart-core.min.js"></script>
   <script src="https://cdn.anychart.com/releases/8.13.0/js/anychart-graph.min.js"></script>
   <script>
+    // The 'graph' variable passed here should already be filtered by the backend
+    // based on the selected view_type
     var data = {{ graph|tojson|safe }};
     {% raw %}
     var chart = anychart.graph(data);
     chart.container("container");
+    
+    // Configure the layout with proper spacing settings
+    // Use only documented layout methods
+    chart.layout().type("forced");
+    chart.layout().iterationCount(2000);
+
+    chart.width('100%');
+    chart.height('100%');
+    
+    // Enable labels of nodes
     chart.nodes().labels().enabled(true);
     chart.nodes().labels().format("{%short}");
     chart.nodes().labels().fontSize(12);
     chart.nodes().labels().fontWeight(600);
+    chart.nodes().labels().position("bottom");
+    chart.nodes().labels().offsetY(5);
+    
+    // Remove circles around icons by setting stroke to null
+    chart.nodes().normal().stroke(null);
+    
+    // Set up node images - using direct data access instead of this.getData()
+    chart.nodes().normal().fill(function() {
+        // Get the node ID
+        var nodeId = this.id;
+        
+        // Find the matching node in the original data
+        for (var i = 0; i < data.nodes.length; i++) {
+            if (data.nodes[i].id === nodeId) {
+                var iconUrl = data.nodes[i].icon_url;
+                if (iconUrl) {
+                    return {src: iconUrl};
+                }
+                break;
+            }
+        }
+        
+        return '#6c757d'; // Default color if no icon
+    });
+    
+    // Set node size to accommodate icons
+    chart.nodes().normal().height(30);
+    chart.nodes().normal().width(30);
+    
+    // Keep the same icon and appearance in hover state
+    chart.nodes().hovered().stroke(null);
+    chart.nodes().hovered().fill(function() {
+        // Reuse the same icon logic for hover state
+        var nodeId = this.id;
+        for (var i = 0; i < data.nodes.length; i++) {
+            if (data.nodes[i].id === nodeId) {
+                var iconUrl = data.nodes[i].icon_url;
+                if (iconUrl) {
+                    return {src: iconUrl};
+                }
+                break;
+            }
+        }
+        return '#6c757d';
+    });
+    chart.nodes().hovered().height(30);
+    chart.nodes().hovered().width(30);
+
+    // Customize edge appearance based on source (neighbor_info, zero_hop)
+    chart.edges().normal().stroke(function() {
+        // Access the edge data directly from the data object
+        var fromId = this.from;
+        var toId = this.to;
+        
+        // Find the matching edge in the original data
+        for (var i = 0; i < data.edges.length; i++) {
+            if (data.edges[i].from === fromId && data.edges[i].to === toId) {
+                var edgeData = data.edges[i].edge_data;
+                if (edgeData && edgeData.source_type) {
+                    if (edgeData.source_type === 'neighbor_info') {
+                        return {color: '#0d6efd', thickness: 2}; // Blue for Neighbor Info
+                    } else if (edgeData.source_type === 'zero_hop') {
+                        return {color: '#198754', thickness: 2, dash: "2 2"}; // Green dashed for Zero Hop
+                    }
+                }
+                break;
+            }
+        }
+        
+        // Fallback if source_type is missing for some reason
+        return '#6c757d'; // Default grey
+    });
+
+    // *** Fix for edges disappearing on hover ***
+    // Set fixed hover styles directly based on edge type
+    chart.edges().hovered().stroke(function() {
+        var fromId = this.from;
+        var toId = this.to;
+        
+        // Find the matching edge in the original data
+        for (var i = 0; i < data.edges.length; i++) {
+            if (data.edges[i].from === fromId && data.edges[i].to === toId) {
+                var edgeData = data.edges[i].edge_data;
+                if (edgeData && edgeData.source_type) {
+                    if (edgeData.source_type === 'neighbor_info') {
+                        // Make hover slightly thicker with same color
+                        return {color: '#0d6efd', thickness: 3}; 
+                    } else if (edgeData.source_type === 'zero_hop') {
+                        // Keep same dash pattern, just thicker
+                        return {color: '#198754', thickness: 3, dash: "2 2"};
+                    }
+                }
+                break;
+            }
+        }
+        
+        // Fallback if source_type is missing
+        return {color: '#6c757d', thickness: 3};
+    });
+
     chart.tooltip().useHtml(true);
     chart.tooltip().format(function() {
       if (this.type == "node") {
-        return this.id + "<br>" + this.getData("name") +
-              "<br><br>Neigbors: " + this.siblings.length;
-      } else {
-        return this.getData("from") + " -> " + this.getData("to");
+        // Use direct data access for node tooltips as well
+        var nodeId = this.id;
+        var nodeData = {};
+        
+        // Find the matching node in the original data
+        for (var i = 0; i < data.nodes.length; i++) {
+            if (data.nodes[i].id === nodeId) {
+                nodeData = data.nodes[i].node_data || {};
+                break;
+            }
+        }
+        
+        let tooltipHtml = "<b>" + this.id + "</b><br>" + (nodeData.long_name || 'Unknown Name') +
+                          "<br><small>" + (nodeData.hw_model || 'Unknown HW') + "</small>" +
+                          "<br><br>Neighbors: " + this.siblings.length;
+         if (nodeData.last_seen) {
+            tooltipHtml += "<br>Last Seen: " + nodeData.last_seen;
+         }
+         return tooltipHtml;
+      } else { // Edge tooltip
+         // Find the matching edge in the original data
+         var fromId = this.from;
+         var toId = this.to;
+         var edgeData = {};
+         
+         for (var i = 0; i < data.edges.length; i++) {
+             if (data.edges[i].from === fromId && data.edges[i].to === toId) {
+                 edgeData = data.edges[i].edge_data || {};
+                 break;
+             }
+         }
+         
+         let sourceBadge = '';
+         if (edgeData.source_type === 'neighbor_info') {
+            sourceBadge = '<span class="badge bg-neighbor">N</span> ';
+         } else if (edgeData.source_type === 'zero_hop') {
+             sourceBadge = '<span class="badge bg-message">M</span> ';
+         }
+
+         let tooltipHtml = sourceBadge + this.from + " ↔ " + this.to;
+
+         if (edgeData.snr !== undefined && edgeData.snr !== null) {
+             tooltipHtml += `<br>SNR: ${edgeData.snr.toFixed(2)}`;
+         }
+         if (edgeData.distance !== undefined && edgeData.distance !== null) {
+             tooltipHtml += `<br>Dist: ${edgeData.distance.toFixed(2)} km`;
+         }
+         if (edgeData.source_type === 'zero_hop' && edgeData.message_count !== undefined) {
+             tooltipHtml += `<br>Msgs: ${edgeData.message_count}`;
+         }
+        return tooltipHtml;
       }
     });
     chart.draw();
@@ -35,13 +198,13 @@
     if (tag) {
       if (tag.type === 'node') {
         var url;
-        for (var i = 0; i < data.nodes.length; i++) {
-          if (data.nodes[i].id === tag.id) {
-            url = "node_" + data.nodes[i].id + ".html";
-            break;
-          }
+        // The data structure might be different now if filtered by backend
+        // It's safer to get the ID directly from the clicked tag
+        var nodeId = tag.id;
+        if (nodeId) {
+           url = "node_" + nodeId.replace("!", "") + ".html"; // Ensure ID format is correct
+           window.open(url, '_self');
         }
-        window.open(url, '_self');
       }
     }
   });

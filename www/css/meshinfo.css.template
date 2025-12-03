@@ -1,0 +1,1201 @@
+body {
+    font-family: monospace;
+    font-size: 12px;
+    background-color: {{page_background_color}} !important;
+}
+
+th {
+    background-color: {{table_header_color}};
+    text-align: center;
+}
+
+/* Override for left-aligned headers */
+th.text-start {
+    text-align: left !important;
+}
+
+nav {
+    background-color: {{header_color}};
+}
+
+.table-striped>tbody>tr:nth-child(2n+1)>td,
+.table-striped>tbody>tr:nth-child(2n+1)>th {
+    background-color: {{table_alternating_row_color}};
+}
+
+/* Main table striping - consolidated rule for odd rows only */
+.table-striped>tbody>tr:nth-of-type(odd) {
+    background-color: {{table_alternating_row_color}} !important;
+}
+
+/* Make inner tables completely transparent */
+.neighbor-table {
+    border-style: hidden !important;
+    background: transparent !important;
+}
+
+.neighbor-table tr {
+    background: transparent !important;
+    border-style: hidden !important;
+}
+
+.neighbor-table td {
+    border-style: hidden !important;
+    padding-right: 8px;
+    background: transparent !important;
+}
+
+/* Add vertical divider lines for neighbors table columns */
+#neighbors-table > tbody > tr > td:nth-child(4),
+#neighbors-table > tbody > tr > td:nth-child(5),
+#neighbors-table > tbody > tr > td:nth-child(6) {
+    border-left: 2px solid {{table_border_color}} !important;
+}
+
+/* Badge styling */
+.badge.bg-good-snr {
+    background-color: #2d8659;
+    /* Dark green */
+    color: white;
+}
+
+.badge.bg-neighbor {
+    background-color: #2b5797;
+    /* Dark blue */
+    color: white;
+}
+
+.badge.bg-message {
+    background-color: #505050;
+    /* Dark gray */
+    color: white;
+}
+
+/* Additional badge styles */
+.badge.bg-purple {
+    background-color: #6f42c1;
+    color: white;
+}
+
+.badge.bg-success {
+    background-color: #28a745;
+    color: white;
+}
+
+/* Layout classes */
+.neighbor-table td.node-id {
+    min-width: 85px;
+    /* Increased from 60px to accommodate 4 letters + badge */
+    white-space: nowrap;
+    /* Prevent wrapping */
+    padding-right: 8px;
+}
+
+.neighbor-table td.snr-value,
+.neighbor-table td.distance,
+.neighbor-table td.message-count {
+    white-space: nowrap;
+}
+
+.neighbor-table td.node-id .badge {
+    margin-right: 4px;
+    /* Add consistent spacing between badge and name */
+    display: inline-block;
+    /* Ensure badge and text stay together */
+}
+
+/* SNR badge styling */
+.badge.snr-good {
+    background-color: #C8E6C9;
+    /* Muted light green */
+    color: black;
+}
+
+.badge.snr-adequate {
+    background-color: #FFF9C4;
+    /* Muted light yellow */
+    color: black;
+}
+
+.badge.snr-poor {
+    background-color: #FFE0B2;
+    /* Muted light orange */
+    color: black;
+}
+
+.badge.snr-very-poor {
+    background-color: #FFCCBC;
+    /* Muted light red-orange */
+    color: black;
+}
+
+/* Additional Styles for Chat2 */
+.chat-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.chat-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding: 10px 0;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.chat-messages {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.message-container {
+    width: 100%;
+}
+
+.message-bubble {
+    background: {{chat_box_background_color}};
+    border-radius: 12px;
+    padding: 12px 16px;
+    position: relative;
+    {% if chat_box_border_color and chat_box_border_color.strip() and chat_box_border_color != 'none' and chat_box_border_color != 'transparent' and chat_box_border_color != '' %}
+    border: 1px solid {{chat_box_border_color}};
+    {% endif %}
+}
+
+.message-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+    font-size: 0.9em;
+}
+
+.message-sender {
+    font-weight: 500;
+    flex-grow: 1;
+}
+
+.map-link,
+.map-link-placeholder {
+    width: 32px;
+    /* Set a fixed width */
+    text-align: center;
+}
+
+.node-link:hover {
+    text-decoration: underline;
+}
+
+.message-timestamp {
+    color: #666;
+    font-size: 0.85em;
+    white-space: nowrap;
+}
+
+.map-link {
+    color: #2b5797;
+    font-size: 1.1em;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+    display: inline-block;
+}
+
+.map-link:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+    text-decoration: none;
+}
+
+.map-link-placeholder {
+    display: inline-block;
+}
+
+.message-content {
+    word-wrap: break-word;
+    font-size: 1.1em;
+    margin: 8px 0;
+}
+
+.message-receptions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.reception-badge {
+    display: inline-flex;
+    align-items: center;
+    background: #f8f9fa;
+    border: 1px solid {{table_border_color}};
+    border-radius: 12px;
+    padding: 4px 10px;
+    font-size: 0.85em;
+    text-decoration: none;
+    color: inherit;
+    transition: background-color 0.2s;
+    margin: 2px;
+}
+
+.reception-badge .snr-indicator {
+    margin-right: 6px;
+}
+
+.reception-badge:hover {
+    background-color: #e9ecef;
+    text-decoration: none;
+    color: inherit;
+}
+
+.snr-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.snr-good .snr-indicator {
+    background-color: #2d8659;
+}
+
+.snr-adequate .snr-indicator {
+    background-color: #ffd700;
+}
+
+.snr-poor .snr-indicator {
+    background-color: #ff9800;
+}
+
+.snr-very-poor .snr-indicator {
+    background-color: #f44336;
+}
+
+.receiver-popover {
+    font-size: 0.9em;
+    line-height: 1.4;
+}
+
+.load-more {
+    display: flex;
+    justify-content: center;
+    margin: 20px 0;
+}
+
+.load-more button {
+    background: transparent;
+    border: 1px solid {{header_color}};
+    color: #2b5797;
+    padding: 8px 16px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.load-more button:hover {
+    background: {{header_color}};
+}
+
+.load-more button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+@media (max-width: 768px) {
+    .chat-container {
+        padding: 10px;
+    }
+
+    .message-header {
+        flex-wrap: wrap;
+    }
+
+    .message-receptions {
+        gap: 4px;
+    }
+
+    .reception-badge {
+        font-size: 0.8em;
+    }
+}
+
+.message-channel {
+    color: #666;
+    font-size: 0.85em;
+    padding: 2px 6px;
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 4px;
+    white-space: nowrap;
+    margin-left: 1em;
+}
+
+.role-badge {
+    padding: 2px 6px;
+    border-radius: 4px;
+    white-space: nowrap;
+    font-weight: bold;
+    font-size: 0.85em;
+    text-align: center;
+    display: inline-block;
+}
+
+.btn-group .btn {
+    padding: 0.25rem 0.5rem;
+}
+
+.btn-group .btn i {
+    font-size: 1rem;
+}
+
+.btn-mini {
+    font-size: 0.80em;
+    padding: 0.05rem 0.3rem;
+    line-height: 1.1;
+    color: {{control_color}} !important;
+    border-color: {{control_color}} !important;
+    background: transparent !important;
+    text-decoration: none !important;
+    transition: background 0.15s, color 0.15s;
+}
+
+.btn-mini:hover, .btn-mini:focus {
+    color: #fff !important;
+    background-color: {{control_color_hover}} !important;
+    border-color: {{control_color_hover}} !important;
+    text-decoration: none !important;
+}
+
+/* Mobile Reception Styles */
+.mobile-receptions {
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+}
+
+.mobile-reception-row {
+    background: #ffffff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 8px 12px;
+}
+
+.mobile-node-name {
+    font-weight: 500;
+    margin-bottom: 4px;
+}
+
+.mobile-node-name a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.mobile-metrics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 0.9em;
+}
+
+.mobile-metrics .metric {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: #f5f5f5;
+}
+
+.mobile-metrics .snr .snr-indicator {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 4px;
+}
+
+/* Desktop/Mobile visibility */
+.desktop-receptions {
+    display: flex;
+}
+
+@media (max-width: 768px) {
+    .desktop-receptions {
+        display: none !important;
+    }
+
+    .mobile-receptions {
+        display: flex !important;
+    }
+
+    .message-receptions {
+        margin-top: 12px;
+    }
+
+    /* Hide popovers on mobile */
+    .popover {
+        display: none !important;
+    }
+}
+
+@media (min-width: 769px) {
+    .desktop-receptions {
+        display: flex !important;
+    }
+
+    .mobile-receptions {
+        display: none !important;
+    }
+
+    /* Ensure popovers display properly on desktop */
+    .popover {
+        max-width: 276px;
+        font-family: inherit;
+        z-index: 1060;
+        display: block;
+    }
+}
+
+/* Map Settings Panel Styles */
+#settings {
+    max-width: 350px;
+    font-size: 0.9em;
+    transition: all 0.3s ease;
+}
+
+#settings h5 {
+    font-size: 1.1em;
+    font-weight: 500;
+}
+
+#settings .form-label {
+    font-weight: 500;
+    font-size: 0.9em;
+    margin-bottom: 0.25rem;
+}
+
+#settings .form-select-sm,
+#settings .form-control-sm {
+    font-size: 0.85em;
+    padding: 0.25rem 0.5rem;
+}
+
+#settings .text-muted {
+    font-size: 0.8em;
+    opacity: 0.8;
+}
+
+#settings .mb-3:last-child {
+    margin-bottom: 0 !important;
+}
+
+/* Make settings panel collapsible on mobile */
+@media (max-width: 768px) {
+    #settings {
+        max-height: 60vh;
+        overflow-y: auto;
+        max-width: calc(100% - 40px);
+        margin: 20px;
+    }
+}
+
+/* Add smooth transitions for filter changes */
+.ol-layer {
+    transition: opacity 0.3s ease;
+}
+
+/* Improve visibility of map controls */
+.ol-control button {
+    background-color: rgba(255, 255, 255, 0.9) !important;
+    color: #333 !important;
+}
+
+.ol-control button:hover {
+    background-color: rgba(255, 255, 255, 1) !important;
+}
+
+/* Settings Toggle Button */
+.settings-toggle {
+    position: fixed;
+    top: 70px; /* Below navbar */
+    right: 20px;
+    z-index: 1001;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: white;
+    border: 1px solid {{table_border_color}};
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.settings-toggle:hover {
+    background: #f8f9fa;
+    transform: rotate(30deg);
+}
+
+.settings-toggle i {
+    font-size: 1.2em;
+    color: #333;
+}
+
+/* Settings Panel */
+.settings-panel {
+    position: fixed;
+    top: 120px; /* Below settings toggle */
+    right: 20px;
+    z-index: 1000;
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    padding: 1rem;
+    max-width: 350px;
+    max-height: calc(100vh - 140px);
+    overflow-y: auto;
+    font-size: 0.9em;
+}
+
+/* Node Info Panel */
+.node-info-panel {
+    position: fixed;
+    top: 180px; /* Increased from 200px to move it down 70px */
+    right: 20px;
+    z-index: 999;
+    background-color: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    padding: 1rem;
+    max-width: 350px;
+    max-height: calc(100vh - 140px);
+    overflow-y: auto;
+}
+
+/* Node Info Panel - Node Name Link */
+.node-info-panel .fw-bold a {
+    font-size: 1.3em !important;
+    font-weight: 600 !important;
+    color: {{control_color}} !important;
+    text-decoration: none !important;
+    transition: color 0.2s ease;
+}
+
+.node-info-panel .fw-bold a:hover {
+    color: {{control_color_hover}} !important;
+    text-decoration: underline !important;
+}
+
+/* Modern Table Styling for Node Info Panel */
+.node-info-panel .table {
+    border-radius: 8px !important;
+    overflow: hidden !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08) !important;
+    border: none !important;
+    margin-bottom: 1rem !important;
+}
+
+.node-info-panel .table thead th {
+    border: none !important;
+    padding: 0.75rem 0.5rem !important;
+    font-weight: 600 !important;
+    font-size: 0.85em !important;
+}
+
+.node-info-panel .table tbody td {
+    border: none !important;
+    border-bottom: 1px solid rgba(0,0,0,0.05) !important;
+    padding: 0.6rem 0.5rem !important;
+    font-size: 0.85em !important;
+}
+
+.node-info-panel .table tbody tr:last-child td {
+    border-bottom: none !important;
+}
+
+.node-info-panel .table tbody tr:hover {
+    background-color: rgba(0,0,0,0.02) !important;
+}
+
+/* Modern Table Styling for Node Tables (nodes.html.j2 and allnodes.html.j2) */
+.container .table {
+    border-radius: 8px !important;
+    overflow: hidden !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08) !important;
+    border: none !important;
+    margin-bottom: 1rem !important;
+}
+
+.container .table thead th {
+    border: none !important;
+    padding: 0.75rem 0.5rem !important;
+    font-weight: 600 !important;
+}
+
+.container .table tbody td {
+    border: none !important;
+    border-bottom: 1px solid rgba(0,0,0,0.05) !important;
+    padding: 0.375rem 0.5rem !important;
+}
+
+.container .table tbody tr:last-child td {
+    border-bottom: none !important;
+}
+
+.container .table tbody tr:hover {
+    background-color: rgba(0,0,0,0.02) !important;
+}
+
+/* Make settings and node info panels responsive */
+@media (max-width: 768px) {
+    .settings-panel,
+    .node-info-panel {
+        max-width: calc(100% - 40px);
+        margin: 20px;
+    }
+
+    .settings-panel {
+        top: 70px;
+        max-height: calc(100vh - 90px);
+    }
+
+    .node-info-panel {
+        top: auto;
+        bottom: 20px;
+        max-height: 60vh;
+    }
+}
+
+/* Improve map controls visibility */
+.ol-control {
+    background: none;
+}
+
+.ol-control button {
+    background-color: white !important;
+    color: #333 !important;
+    border: 1px solid {{table_border_color}} !important;
+    border-radius: 4px !important;
+    margin: 2px !important;
+    transition: all 0.2s ease;
+}
+
+.ol-control button:hover {
+    background-color: #f8f9fa !important;
+    color: #000 !important;
+}
+
+/* Make OpenStreetMap attribution less prominent on all OpenLayers maps */
+.ol-attribution, .ol-attribution ul {
+    font-size: 0.75em !important;
+    opacity: 0.7;
+}
+
+/* --- THEME AND CUSTOM STYLES FROM layout.html.j2 --- */
+
+.navbar {
+  background-color: {{header_color}} !important;
+  color: {{header_link_color}} !important;
+}
+
+.navbar-brand {
+  color: {{header_brand_color}} !important;
+}
+
+.navbar .navbar-brand:hover, .navbar .navbar-brand:focus {
+  color: {{header_link_color}} !important;
+  text-decoration: none !important;
+}
+
+.navbar .nav-link, .navbar .dropdown-item {
+  color: {{header_link_color}} !important;
+  text-decoration: none !important;
+}
+.navbar .nav-link.active, .navbar .active > .nav-link, .navbar .nav-link:active {
+  color: {{header_link_active_color}} !important;
+  text-decoration: none !important;
+}
+.navbar .nav-link:hover, .navbar .nav-link:focus, .navbar .dropdown-item:hover, .navbar .dropdown-item:focus {
+  color: {{header_link_active_color}} !important;
+  text-decoration: none !important;
+}
+
+a {
+  color: {{link_color}} !important;
+}
+a:hover, a:focus {
+  color: {{link_color_hover}} !important;
+  text-decoration: underline;
+}
+
+.btn, .form-control, .page-link {
+  border-color: {{control_color}} !important;
+  color: #fff !important;
+}
+.btn-primary, .btn-accent, .btn-info {
+  background-color: {{control_color}} !important;
+  border-color: {{control_color}} !important;
+  color: #fff !important;
+}
+.btn-primary:hover, .btn-accent:hover, .btn-info:hover,
+.btn-primary:focus, .btn-accent:focus, .btn-info:focus,
+.btn-primary:active, .btn-accent:active, .btn-info:active {
+  background-color: {{control_color_hover}} !important;
+  border-color: {{control_color_hover}} !important;
+  color: #fff !important;
+  filter: brightness(0.95);
+}
+.btn-outline-primary {
+  color: {{control_color}} !important;
+  border-color: {{control_color}} !important;
+  background-color: #fff !important;
+}
+.btn-outline-primary:hover,
+.btn-outline-primary:focus,
+.btn-outline-primary:active,
+.btn-outline-primary.active {
+  color: #fff !important;
+  background-color: {{control_color_hover}} !important;
+  border-color: {{control_color_hover}} !important;
+}
+
+/* Prevent global link color from affecting only reception badge links in chat */
+.reception-badge,
+.mobile-node-name a {
+  color: #000 !important;
+}
+
+/* Table theming */
+.table thead th {
+  background-color: {{table_header_color}} !important;
+}
+.table {
+  border-color: {{table_border_color}} !important;
+}
+.table td, .table th {
+  border-color: {{table_border_color}} !important;
+  color: #000 !important;
+}
+
+/* Pagination link and icon theming */
+.page-link, .btn-outline-secondary {
+  color: {{control_color}} !important;
+  border-color: {{control_color}} !important;
+  background-color: #fff !important;
+}
+.page-link:hover, .page-link:focus, .btn-outline-secondary:hover, .btn-outline-secondary:focus {
+  color: #fff !important;
+  background-color: {{control_color_hover}} !important;
+  border-color: {{control_color_hover}} !important;
+}
+.page-link .bi, .btn-outline-secondary .bi {
+  color: inherit !important;
+}
+.page-link:disabled, .btn-outline-secondary:disabled {
+  color: #ccc !important;
+  background-color: #f8f9fa !important;
+  border-color: #dee2e6 !important;
+}
+
+/* --- END MIGRATED STYLES --- */
+
+.newest-node-welcome, .banner {
+  background: {{banner_background_color}} !important;
+}
+
+/* Themed Bootstrap Popover Styles */
+.popover {
+    background-color: {{page_background_color}} !important;
+    border: 1px solid {{table_border_color}} !important;
+    color: {{header_link_color}} !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+    border-radius: 12px !important;
+    overflow: hidden !important;
+    font-family: inherit;
+    font-size: 0.98em;
+    z-index: 1060;
+}
+.popover-header {
+    background-color: {{table_header_color}} !important;
+    color: {{header_link_color}} !important;
+    border-bottom: 1px solid {{table_border_color}} !important;
+    font-weight: 600;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+}
+.popover-body {
+    background-color: {{page_background_color}} !important;
+    color: {{header_link_color}} !important;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+.receiver-popover {
+    font-size: 0.98em;
+    line-height: 1.5;
+    color: {{header_link_color}} !important;
+    font-family: inherit;
+}
+
+.badge.bg-secondary {
+    background-color: #e0e0e0 !important; /* Light gray for high contrast */
+    color: #222 !important;              /* Dark text for readability */
+    border: 1px solid {{table_border_color}} !important;
+    font-weight: 600;
+}
+
+/* Environmental Telemetry Dropdown Theming */
+#environmentalDropdown {
+    border: 2px solid {{control_color}} !important;
+    border-radius: 0.375rem !important;
+    color: {{control_color}} !important;
+    font-family: monospace, monospace;
+    font-weight: 600;
+    background: #fff !important;
+    height: 2.25rem !important;
+    min-width: 120px;
+    margin-left: 1rem;
+    margin-top: 0.15rem;
+    margin-bottom: 0.15rem;
+    display: inline-block;
+    vertical-align: middle;
+    box-shadow: none;
+    transition: border-color 0.2s;
+}
+#environmentalDropdown:focus, #environmentalDropdown:hover {
+    border-color: {{control_color_hover}} !important;
+    outline: none !important;
+    box-shadow: 0 0 0 0.1rem rgba(0,123,255,.15);
+}
+@media (max-width: 767.98px) {
+    #environmentalDropdown {
+        margin-left: 0.5rem;
+        margin-top: 0.5rem;
+        margin-bottom: 0.5rem;
+        width: 100%;
+        min-width: 0;
+    }
+}
+
+/* Node Filter Input Theming */
+#nodeFilter,
+#senderFilter,
+#messageTypeFilter,
+#channelFilter {
+    background-color: #fff !important;
+    color: #333 !important;
+    border: 1px solid {{control_color}} !important;
+    border-radius: 0.375rem !important;
+    font-family: monospace, monospace;
+    transition: border-color 0.2s ease;
+}
+
+/* Routing Page Form Controls - Override white text issue */
+.routing-filters .form-control,
+.routing-filters .form-select {
+    background-color: #fff !important;
+    color: #333 !important;
+    border: 1px solid {{control_color}} !important;
+    border-radius: 0.375rem !important;
+    font-family: monospace, monospace;
+    transition: border-color 0.2s ease;
+}
+
+.routing-filters .form-control:focus,
+.routing-filters .form-select:focus {
+    border-color: {{control_color_hover}} !important;
+    outline: none !important;
+    box-shadow: 0 0 0 0.1rem rgba(0,123,255,.15);
+    background-color: #fff !important;
+    color: #333 !important;
+}
+#nodeFilter:focus,
+#senderFilter:focus,
+#messageTypeFilter:focus,
+#channelFilter:focus {
+    border-color: {{control_color_hover}} !important;
+    outline: none !important;
+    box-shadow: 0 0 0 0.1rem rgba(0,123,255,.15);
+    background-color: #fff !important;
+    color: #333 !important;
+}
+#nodeFilter::placeholder,
+#senderFilter::placeholder {
+    color: #6c757d !important;
+    opacity: 1;
+}
+
+/* Logs Page Filter Controls Theming */
+#senderFilter,
+#messageTypeFilter,
+#channelFilter {
+    background-color: #fff !important;
+    color: #333 !important;
+    border: 1px solid {{control_color}} !important;
+    border-radius: 0.375rem !important;
+    font-family: monospace, monospace;
+    font-size: 12px;
+    transition: border-color 0.2s ease;
+}
+#senderFilter:focus,
+#messageTypeFilter:focus,
+#channelFilter:focus {
+    border-color: {{control_color_hover}} !important;
+    outline: none !important;
+    box-shadow: 0 0 0 0.1rem rgba(0,123,255,.15);
+    background-color: #fff !important;
+    color: #333 !important;
+}
+#senderFilter::placeholder {
+    color: #6c757d !important;
+    opacity: 1;
+}
+
+/* Map Settings Panel Controls Theming */
+#settings .form-select,
+#settings .form-control {
+    background-color: #fff !important;
+    color: #333 !important;
+    border: 1px solid {{control_color}} !important;
+    border-radius: 0.375rem !important;
+    font-family: monospace, monospace;
+    transition: border-color 0.2s ease;
+}
+
+#settings .form-select:focus,
+#settings .form-control:focus {
+    border-color: {{control_color_hover}} !important;
+    outline: none !important;
+    box-shadow: 0 0 0 0.1rem rgba(0,123,255,.15);
+    background-color: #fff !important;
+    color: #333 !important;
+}
+
+/* Utilization Map Settings Panel Controls Theming */
+#settings #timeRange,
+#settings #channelFilter {
+    background-color: #fff !important;
+    color: #333 !important;
+    border: 1px solid {{control_color}} !important;
+    border-radius: 0.375rem !important;
+    font-family: monospace, monospace;
+    transition: border-color 0.2s ease;
+}
+
+#settings #timeRange:focus,
+#settings #channelFilter:focus {
+    border-color: {{control_color_hover}} !important;
+    outline: none !important;
+    box-shadow: 0 0 0 0.1rem rgba(0,123,255,.15);
+    background-color: #fff !important;
+    color: #333 !important;
+}
+
+/* Checkbox styling for utilization map settings */
+#settings #useContactRange,
+#settings #showHexBorders,
+#settings #autoScaleRadius,
+#settings #useContactDistance {
+    accent-color: {{control_color}} !important;
+}
+
+#settings #useContactRange:checked,
+#settings #showHexBorders:checked,
+#settings #autoScaleRadius:checked,
+#settings #useContactDistance:checked {
+    background-color: {{control_color}} !important;
+    border-color: {{control_color}} !important;
+}
+
+/* Range slider styling for utilization map settings - use browser defaults */
+#settings #hexSize,
+#settings #heatmapRadius,
+#settings #heatmapBlur,
+#settings #heatmapOpacity {
+    accent-color: {{control_color}} !important;
+}
+
+/* Ensure gap between time range and telemetry selector at desktop widths */
+@media (min-width: 768px) {
+  #environmentalTelemetryContainer .btn-group + #environmentalTabs {
+    margin-left: 2rem !important;
+  }
+}
+
+/* Details table header styling */
+.details-label {
+  font-weight: 600;
+  text-align: left;
+  color: #222;
+  vertical-align: middle;
+}
+
+/* Ensure details-table stripes both th and td in odd rows */
+.details-table > tbody > tr:nth-of-type(odd) > th,
+.details-table > tbody > tr:nth-of-type(odd) > td {
+    background-color: {{table_alternating_row_color}} !important;
+} 
+
+/* Ensure details-table stripes both th and td in even rows */
+.details-table > tbody > tr:nth-of-type(even) > th,
+.details-table > tbody > tr:nth-of-type(even) > td {
+    background-color: {{page_background_color}} !important;
+} 
+
+/* Collapse border between section and column headers in heard tables */
+.heard-table thead tr:first-child th {
+    border-bottom: none !important;
+}
+.heard-table thead tr:nth-child(2) th {
+    border-top: none !important;
+}
+
+/* Collapse border between section and column headers in node-table */
+.node-table thead tr:first-child th {
+    border-bottom: none !important;
+}
+.node-table thead tr:nth-child(2) th {
+    border-top: none !important;
+} 
+
+.btn-link.btn-mini {
+  color: {{control_color}} !important;
+  background: transparent !important;
+  border-color: {{control_color}} !important;
+  text-decoration: none !important;
+  padding: 0.18rem 0.4rem;
+}
+.btn-link.btn-mini:hover, .btn-link.btn-mini:focus {
+  color: #fff !important;
+  background-color: {{control_color_hover}} !important;
+  border-color: {{control_color_hover}} !important;
+  text-decoration: none !important;
+} 
+
+/* Message Map prominent message box */
+.message-map-box {
+  background: {{chat_box_background_color}};
+  border-left: 3px solid {{accent_color}};
+  border-radius: 4px;
+  padding: 0.5rem 1rem;
+  margin: 0.5rem 0;
+  font-size: 1.05rem;
+  font-weight: 500;
+  word-break: break-word;
+} 
+
+/* --- Monday Page Styles --- */
+body.monday-page {
+  background: {{page_background_color}};
+}
+.monday-banner {
+  background: {{banner_background_color}};
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(23,162,184,0.08);
+  border: 1px solid {{table_border_color}};
+  padding: 1.5rem 1.5rem 1rem 1.5rem;
+  margin-bottom: 2rem;
+}
+.monday-banner strong {
+  color: {{accent_color}};
+}
+.monday-table {
+  background: {{page_background_color}};
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(23,162,184,0.06);
+  border: 1px solid {{table_border_color}};
+  overflow: hidden;
+}
+.monday-table th {
+  background: {{table_header_color}} !important;
+  color: #222;
+  border-bottom: 2px solid {{accent_color}} !important;
+  font-weight: 600;
+  font-size: 1rem;
+}
+.monday-table td, .monday-table th {
+  border-color: {{table_border_color}} !important;
+}
+.monday-table tr:nth-child(even) td {
+  background: {{table_alternating_row_color}};
+}
+.monday-date-row th {
+  background: {{table_subheader_color}} !important;
+  color: {{control_color}} !important;
+  font-size: 1.15em;
+  font-weight: 700;
+  text-align: center;
+  border: none;
+}
+
+.monday-table a {
+  color: {{link_color}};
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.monday-table a:hover {
+  color: {{link_color_hover}};
+  text-decoration: underline;
+}
+.monday-streak {
+  color: {{accent_color}};
+  font-weight: 600;
+  font-size: 0.95em;
+}
+.monday-checkins {
+  color: #888;
+  font-size: 0.92em;
+}
+.monday-example {
+  padding: 7px 12px;
+  background: {{chat_box_background_color}};
+  border-radius: 6px;
+  font-style: italic;
+  margin-top: 0.5em;
+  border: 1px solid {{table_border_color}};
+  color: #333;
+}
+/* --- End Monday Page Styles --- */ 
+
+/* Modern Table Styling for Routing Page (custom-wide-container) */
+.custom-wide-container .table {
+  border-radius: 8px !important;
+  overflow: hidden !important;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08) !important;
+  border: none !important;
+  margin-bottom: 1rem !important;
+}
+
+.custom-wide-container .table thead th {
+  border: none !important;
+  padding: 0.75rem 0.5rem !important;
+  font-weight: 600 !important;
+}
+
+.custom-wide-container .table tbody td {
+  border: none !important;
+  border-bottom: 1px solid rgba(0,0,0,0.05) !important;
+  padding: 0.375rem 0.5rem !important;
+}
+
+.custom-wide-container .table tbody tr:last-child td {
+  border-bottom: none !important;
+}
+
+.custom-wide-container .table tbody tr:hover {
+  background-color: rgba(0,0,0,0.02) !important;
+} 
+
+/* Custom wide container for routing page */
+.custom-wide-container {
+  max-width: 1600px;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
+  padding-left: 15px;
+  padding-right: 15px;
+} 

@@ -3,9 +3,16 @@
 
 {% block title %}Neighbors | MeshInfo{% endblock %}
 
+{% block og_title %}Neighbor Info | {{ config['mesh']['name'] }}{% endblock %}
+{% block og_description %}See direct neighbor connections and link quality for nodes in the {{ config['mesh']['short_name'] }} mesh network. Analyze SNR and network topology.{% endblock %}
+{% block twitter_title %}Neighbor Info | {{ config['mesh']['name'] }}{% endblock %}
+{% block twitter_description %}See direct neighbor connections and link quality for nodes in the {{ config['mesh']['short_name'] }} mesh network. Analyze SNR and network topology.{% endblock %}
+
 {% block content %}
 <div class="container pt-3">
-  <h5>{{ this_page.title() }}</h5>
+  <div class="d-flex align-items-center mb-3">
+    <h5 class="mb-0 me-2">🔗 {{ this_page.title() }}</h5>
+  </div>
   
   <div class="btn-group mb-3" role="group" aria-label="View type">
     <a href="{{ url_for('neighbors', view='neighbor_info') }}" 
@@ -29,7 +36,7 @@
   </p>
 
   <div class="table-responsive">
-    <table class="table table-striped table-bordered table-sm">
+    <table id="neighbors-table" class="table table-striped table-bordered table-sm">
       <thead>
         <tr>
           <th scope="col">ID</th>
@@ -179,6 +186,9 @@
           </td>
           
           <td>
+            {% if node.channel is not none %}
+            <span class="message-channel" style="background-color: {{ utils.get_channel_color(node.channel) }}; color: white; padding: 2px 6px; border-radius: 4px;" title="Channel {{ node.channel }} ({{ utils.get_channel_name(node.channel) }})">{{ utils.get_channel_name(node.channel, use_short_names=True) }}</span>
+            {% endif %}
             <span title="{{ format_timestamp(node.ts_seen) }}">
               {{ time_ago(node.ts_seen) }}
             </span>
@@ -191,6 +201,8 @@
 </div>
   <br><br>
   <br><br>
-  <a href='nodes.json'>Download JSON</a>
+  <div class="text-center">
+    <a href='nodes.json'>Download JSON</a>
+  </div>
 </div>
 {% endblock %}

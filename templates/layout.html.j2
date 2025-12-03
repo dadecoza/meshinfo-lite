@@ -4,15 +4,32 @@
 {% macro snr_badge(snr) %}
   {% if snr is not none %}  {# Check if snr exists and is not None #}
     {% if snr > 0 %}
-      <span class="badge snr-good ms-1" title="Signal-to-Noise Ratio: Good">{{ "%.1f"|format(snr) }} dB</span>
+      <span class="badge snr-good mx-2" title="Signal-to-Noise Ratio: Good">{{ "%.1f"|format(snr) }} dB</span>
     {% elif snr > -5 %}
-      <span class="badge snr-adequate ms-1" title="Signal-to-Noise Ratio: Adequate">{{ "%.1f"|format(snr) }} dB</span>
+      <span class="badge snr-adequate mx-2" title="Signal-to-Noise Ratio: Adequate">{{ "%.1f"|format(snr) }} dB</span>
     {% elif snr > -10 %}
-      <span class="badge snr-poor ms-1" title="Signal-to-Noise Ratio: Poor">{{ "%.1f"|format(snr) }} dB</span>
+      <span class="badge snr-poor mx-2" title="Signal-to-Noise Ratio: Poor">{{ "%.1f"|format(snr) }} dB</span>
     {% else %}
-      <span class="badge snr-very-poor ms-1" title="Signal-to-Noise Ratio: Very Poor">{{ "%.1f"|format(snr) }} dB</span>
+      <span class="badge snr-very-poor mx-2" title="Signal-to-Noise Ratio: Very Poor">{{ "%.1f"|format(snr) }} dB</span>
     {% endif %}
   {% endif %}
+{% endmacro %}
+
+{% macro page_icon(page_name) %}
+  {% set icon_map = {
+    'chat': 'bi-chat-dots',
+    'graph': 'bi-diagram-3',
+    'map': 'bi-geo-alt',
+    'nodes': 'bi-hdd-network',
+    'neighbors': 'bi-people',
+    'telemetry': 'bi-graph-up',
+    'traceroutes': 'bi-arrow-repeat',
+    'logs': 'bi-journal-text',
+    'metrics': 'bi-speedometer2',
+    'my nodes': 'bi-person-check'
+  } %}
+  {% set icon = icon_map.get(page_name.lower(), 'bi-circle') %}
+  <i class="bi {{ icon }} me-1"></i>
 {% endmacro %}
 
 <head>
@@ -22,9 +39,45 @@
   <link rel="icon" type="image/x-icon" href="/images/icons/favicon.ico">
   <link href="/css/bootstrap.min.css" rel="stylesheet">
   <link href="/css/meshinfo.css" rel="stylesheet">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">  
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <style>
+    /* Fallback for Bootstrap Icons */
+    .bi::before {
+      font-family: "bootstrap-icons" !important;
+    }
+    
+    /* Ensure experimental features flask icon is visible in mobile */
+    #experimentalDropdown .bi-flask {
+      display: inline-block !important;
+      margin-right: 0.175rem !important;
+    }
+    
+    /* Additional debugging for flask icon */
+    .d-lg-none .bi-flask {
+      display: inline-block !important;
+      visibility: visible !important;
+    }
+  </style>  
 
-  {% block head %}{% endblock %}
+  {% block head %}
+    <meta property="og:title" content="{% block og_title %}{{ config['mesh']['name'] }}{% endblock %}" />
+    <meta property="og:type" content="{% block og_type %}website{% endblock %}" />
+    <meta property="og:url" content="{% block og_url %}{{ request.url }}{% endblock %}" />
+    <meta property="og:image" content="{% block og_image %}{{ config['mesh'].get('og_image', request.url_root.rstrip('/') + '/images/logos/logo.webp') }}{% endblock %}" />
+    <meta property="og:logo" content="{% block og_logo %}{{ config['mesh'].get('og_logo', request.url_root.rstrip('/') + '/images/logos/logo.webp') }}{% endblock %}" />
+    <meta property="og:image:width" content="{% block og_image_width %}1200{% endblock %}" />
+    <meta property="og:image:height" content="{% block og_image_height %}630{% endblock %}" />
+    <meta property="og:description" content="{% block og_description %}MeshInfo provides real-time visibility into the {{ config['mesh']['region'] }} ({{ config['mesh']['short_name'] }}) Meshtastic mesh network: node locations, telemetry, and more.{% endblock %}" />
+    <meta property="og:site_name" content="{{ config['mesh']['name'] }}" />
+    <meta property="og:locale" content="en_US" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="{% block twitter_title %}{{ config['mesh']['name'] }}{% endblock %}" />
+    <meta name="twitter:description" content="{% block twitter_description %}MeshInfo provides real-time visibility into the {{ config['mesh']['region'] }} ({{ config['mesh']['short_name'] }}) Meshtastic mesh network: node locations, telemetry, and more.{% endblock %}" />
+    <meta name="twitter:image" content="{% block twitter_image %}{{ config['mesh'].get('og_image', request.url_root.rstrip('/') + '/images/logos/logo.webp') }}{% endblock %}" />
+    <meta name="twitter:image:width" content="{% block twitter_image_width %}1200{% endblock %}" />
+    <meta name="twitter:image:height" content="{% block twitter_image_height %}630{% endblock %}" />
+  {% endblock %}
 </head>
 
 <body>
@@ -36,35 +89,58 @@
     <div class="collapse navbar-collapse" id="navbarToggler">
       <a class="navbar-brand" href="{{  config["mesh"]["url"] }}">{{ config["mesh"]["name"] }}</a>
       <ul class="navbar-nav mr-auto mt-2 mt-lg-0">
-        {% for page in ["chat", "graph", "map", "nodes", "neighbors", "telemetry", "traceroutes", "logs"] %}
+        {% for page in ["chat", "graph", "map", "nodes", "neighbors", "telemetry", "traceroutes", "logs","metrics"] %}
         <li class="nav-item{% if page == this_page %} active{% endif %}">
-          <a class="nav-link" href="{{ page }}.html">{{ page.title() }}</a>
+          <a class="nav-link" href="{{ page }}.html"><span class="d-lg-none d-xl-inline">{{ page_icon(page) }}</span>{{ page.title() }}</a>
         </li>
         {% endfor %}
         {% if auth %}
         <li class="nav-item{% if this_page == "my nodes" %} active{% endif %}">
-          <a class="nav-link" href="{{ url_for("mynodes") }}">My Nodes</a>
+          <a class="nav-link" href="{{ url_for("mynodes") }}"><span class="d-lg-none d-xl-inline">{{ page_icon("my nodes") }}</span>My Nodes</a>
+        </li>
+        <li class="nav-item{% if this_page == "account" %} active{% endif %}">
+          <a class="nav-link" href="{{ url_for("account") }}"><span class="d-lg-none d-xl-inline"><i class="bi bi-gear me-1"></i></span>Account</a>
         </li>
         {% endif %}
          <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" id="toolsDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-            Tools
+            <span class="d-lg-none"><i class="bi bi-tools me-1"></i>&nbsp;<span>Tools</span></span>
+            <span class="d-none d-lg-inline"><i class="bi bi-tools"></i></span>
           </a>
           <div class="dropdown-menu" aria-labelledby="toolsDropdown">
-            <!-- <a class="dropdown-item" href="https://meshview.zr1rf.za.net/">MeshView</a> -->
-            <a class="dropdown-item" href="https://mqtt.davekeogh.com/?lat=47.60292227835496&lng=237.49420166015628&zoom=10">PugetMesh Map</a>
-            <a class="dropdown-item" href="https://meshmap.net/">MeshMap</a>
-            <a class="dropdown-item" href="https://meshsense.affirmatech.com/">MeshSense Map</a>
+            {% for key, value in config['tools'].items() if not key.endswith('_label') and not key.endswith('_node_link') %}
+              {% set label = config['tools'].get(key + '_label', key.replace('_', ' ').title()) %}
+              <a class="dropdown-item" href="{{ value }}" target="_blank">{{ label }}</a>
+            {% endfor %}
           </div>
         </li>
-        <li class="nav-item{% if this_page == "#MeshtasticMonday" %} active{% endif %}">
-          <a class="nav-link" href="monday.html">#MeshtasticMonday</a>
+        {% if config['server'].get('experimental_features_menu', 'false')|lower == 'true' %}
+        <!-- Experimental Features Dropdown -->
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" id="experimentalDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+            <span class="d-none d-lg-inline">🧪</span>
+            <span class="d-lg-none">🧪 Experimental Features</span>
+          </a>
+          <div class="dropdown-menu" aria-labelledby="experimentalDropdown">
+            <a class="dropdown-item" href="graph4.html">New Network Graph</a>
+            <a class="dropdown-item" href="message-paths.html">Message Paths</a>
+            <a class="dropdown-item" href="routing.html">Routing Messages</a>
+            <a class="dropdown-item" href="utilization-heatmap.html">Channel Utilization Heatmap</a>
+            <a class="dropdown-item" href="utilization-hexmap.html">Channel Utilization Hex Map</a>
+          </div>
         </li>
+        {% endif %}
+        {% set current_local_time = convert_to_local(datetime.now().timestamp()) %}
+        {% if current_local_time.weekday() == 0 %}
+        <li class="nav-item{% if this_page == "#MeshtasticMonday" %} active{% endif %}">
+          <a class="nav-link" href="monday.html"><span class="d-lg-none d-xl-inline"></span>#MeshtasticMonday</a>
+        </li>
+        {% endif %}
       </ul>
       {% if not auth %}
-      <a href="{{ url_for("login") }}" class="btn btn-info" role="button">Login</a>
+      <a href="{{ url_for("login") }}" class="btn btn-accent" role="button">Login</a>
       {% else %}
-      <a href="{{ url_for("logout") }}" class="btn btn-info" role="button">Logout</a>
+      <a href="{{ url_for("logout") }}" class="btn btn-accent" role="button">Logout</a>
       {% endif %}
     </div>
   </nav>

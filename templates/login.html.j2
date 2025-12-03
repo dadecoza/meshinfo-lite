@@ -3,14 +3,34 @@
 
 {% block title %}Login | MeshInfo{% endblock %}
 
+{% block head %}
+<style>
+/* Ensure form input text is black and visible */
+.form-control {
+    color: #000000 !important;
+}
+
+.form-control::placeholder {
+    color: #6c757d !important;
+}
+
+input[type="email"],
+input[type="password"],
+input[type="text"] {
+    color: #000000 !important;
+}
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="mt-5 d-flex justify-content-center align-items-center vh-100 bg-light">
     <div class="card p-4 shadow-lg" style="width: 350px;">
         <h3 class="text-center mb-4">Login</h3>
         <form action="login.html" method="POST">            
             <div class="mb-3">
-                <label for="email" class="form-label">Email</label>
-                <input type="email" class="form-control" id="email" name="email" required>
+                <label for="email" class="form-label">Email or Username</label>
+                <input type="text" class="form-control" id="email" name="email" required>
+                <small class="form-text text-muted">You can login with either your email address or username.</small>
             </div>
             <div class="mb-3">
                 <label for="password" class="form-label">Password</label>

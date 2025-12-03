@@ -3,14 +3,271 @@
 
 {% block title %}My Nodes | MeshInfo{% endblock %}
 
+{% block og_title %}My Nodes | {{ config['mesh']['name'] }}{% endblock %}
+{% block og_description %}Manage and monitor your linked nodes in the {{ config['mesh']['short_name'] }} mesh network. View telemetry, location, and status of your personal nodes.{% endblock %}
+{% block og_image_width %}1200{% endblock %}
+{% block og_image_height %}630{% endblock %}
+{% block twitter_title %}My Nodes | {{ config['mesh']['name'] }}{% endblock %}
+{% block twitter_description %}Manage and monitor your linked nodes in the {{ config['mesh']['short_name'] }} mesh network. View telemetry, location, and status of your personal nodes.{% endblock %}
+{% block twitter_image_width %}1200{% endblock %}
+{% block twitter_image_height %}630{% endblock %}
+
+{% block head %}
+  {{ super() }}
+  {% include "map_dependencies.html.j2" %}
+  
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+{% endblock %}
+
 {% block content %}
 <div class="container pt-3">
-<h5>{{ this_page.title() }}</h5>
-{% if nodes %}
-  {% include 'node_table.html.j2' %}
-{% else %}
-  </p>You don't have any linked nodes.<p>
-{% endif %}
-<div><a href="{{ url_for("link_node") }}" class="btn btn-info" role="button">Link node</a></div>
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h5>{{ this_page.title() }}</h5>
+    <a href="{{ url_for('link_node') }}" class="btn btn-info" role="button">Link New Node</a>
+  </div>
+
+  {% if nodes %}
+    <div class="row g-4">
+      {% for id, node in nodes.items()|sort(attribute='1.short_name') %}
+        <div class="col-12 col-md-6 col-lg-4 mb-4">
+          <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <div>
+                <h5 class="mb-0">
+                  <a href="node_{{ id }}.html" style="text-decoration: none; color: inherit;">
+                    <img src="https://api.dicebear.com/9.x/bottts-neutral/svg?seed={{ id }}" alt="Avatar" 
+                         style="height: 40px; width: 40px; margin-right: 10px;">
+                    {{ node.short_name }}
+                  </a>
+                </h5>
+                <small class="text-muted">{{ node.long_name }}</small>
+              </div>
+              <div>
+                {% if node.active %}
+                  <span class="badge bg-success">Online</span>
+                {% else %}
+                  <span class="badge bg-secondary">Offline</span>
+                {% endif %}
+                {% if node.channel is not none %}
+                  <span class="badge" style="background-color: {{ utils.get_channel_color(node.channel) }}; color: white;">
+                    {{ utils.get_channel_name(node.channel, use_short_names=True) }}
+                  </span>
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="card-body">
+              <!-- Hardware Info -->
+              <div class="mb-3">
+                {% if node.hw_model is not none %}
+                  {% set hw_name = meshtastic_support.get_hardware_model_name(node.hw_model) %}
+                  {% if node.hw_model in meshtastic_support.HardwareModel._value2member_map_ %}
+                    {% set hw_model_enum = meshtastic_support.HardwareModel(node.hw_model) %}
+                    {% if hw_model_enum in meshtastic_support.HARDWARE_PHOTOS %}
+                      <img src="images/hardware/{{ meshtastic_support.HARDWARE_PHOTOS[hw_model_enum] }}"
+                           alt="{{ hw_name }}" title="{{ hw_name }}" 
+                           style="height: 60px; float: right;">
+                    {% endif %}
+                  {% endif %}
+                  <strong>Hardware:</strong> {{ hw_name }}<br>
+                {% endif %}
+                {% if node.firmware_version %}
+                  <strong>Firmware:</strong> {{ node.firmware_version }}<br>
+                {% endif %}
+                {% if node.role is not none %}
+                  <strong>Role:</strong>
+                  {% if node.role == 0 %}Client
+                  {% elif node.role == 1 %}Client Mute
+                  {% elif node.role == 2 %}Router
+                  {% elif node.role == 3 %}Router Client
+                  {% elif node.role == 4 %}Repeater
+                  {% elif node.role == 5 %}Tracker
+                  {% elif node.role == 6 %}Sensor
+                  {% elif node.role == 7 %}TAK
+                  {% elif node.role == 8 %}Client Hidden
+                  {% elif node.role == 9 %}Lost and Found
+                  {% elif node.role == 10 %}TAK Tracker
+                  {% elif node.role == 11 %}Router Late
+                  {% elif node.role == 12 %}Client Base
+                  {% else %}Unknown ({{ node.role }})
+                  {% endif %}
+                {% endif %}
+              </div>
+
+              <!-- Telemetry -->
+              {% if node.telemetry %}
+                <div class="mb-3">
+                  <h6>Telemetry</h6>
+                  <div class="row g-2">
+                    {% if node.telemetry.battery_level is not none %}
+                      <div class="col-6">
+                        <div class="d-flex align-items-center">
+                          <img src="images/icons/battery.svg" alt="Battery" style="height: 20px; margin-right: 5px;">
+                          <span>{{ node.telemetry.battery_level }}%</span>
+                        </div>
+                      </div>
+                    {% endif %}
+                    {% if node.telemetry.voltage is not none %}
+                      <div class="col-6">
+                        <div class="d-flex align-items-center">
+                          <img src="images/icons/voltage.svg" alt="Voltage" style="height: 14px; margin-right: 5px;">
+                          <span>{{ node.telemetry.voltage|round(2) }}V</span>
+                        </div>
+                      </div>
+                    {% endif %}
+                    {% if node.telemetry.air_util_tx is not none %}
+                      <div class="col-6">
+                        <div class="d-flex align-items-center">
+                          <img src="images/icons/up.svg" alt="Air Util TX" style="height: 14px; margin-right: 5px;">
+                          <span>{{ node.telemetry.air_util_tx|round(1) }}%</span>
+                        </div>
+                      </div>
+                    {% endif %}
+                    {% if node.telemetry.channel_utilization is not none %}
+                      <div class="col-6">
+                        <div class="d-flex align-items-center">
+                          <img src="images/icons/down.svg" alt="Channel Util" style="height: 14px; margin-right: 5px;">
+                          <span>{{ node.telemetry.channel_utilization|round(1) }}%</span>
+                        </div>
+                      </div>
+                    {% endif %}
+                  </div>
+                </div>
+              {% endif %}
+
+              <!-- Position -->
+              {% if node.position and node.position.latitude_i and node.position.longitude_i %}
+                <div class="mb-3">
+                  <h6>Location</h6>
+                  <div id="map_{{ id }}" class="map mb-2" style="height: 200px;"></div>
+                  <div class="small">
+                    {% if node.position.altitude %}
+                      <strong>Altitude:</strong> {{ node.position.altitude }} m<br>
+                    {% endif %}
+                    {% if node.position.geocoded %}
+                      <strong>Location:</strong> {{ node.position.geocoded }}<br>
+                    {% endif %}
+                    {% set grid = utils.latlon_to_grid(node.position.latitude_i / 1e7, node.position.longitude_i / 1e7) %}
+                    <strong>Grid:</strong> {{ grid }}
+                  </div>
+                </div>
+              {% endif %}
+
+              <!-- Status -->
+              <div class="small text-muted">
+                <strong>Last Seen:</strong> {{ time_ago(node.ts_seen) }}<br>
+                <strong>First Seen:</strong> {{ format_timestamp(node.ts_created) if node.ts_created else 'Unknown' }}
+              </div>
+            </div>
+
+            <div class="card-footer">
+              <a href="node_{{ id }}.html" class="btn btn-sm btn-outline-primary" title="View Details">
+                <i class="bi bi-search"></i>
+              </a>
+              <a href="https://meshtastic.davekeogh.com/?node_id={{ id }}" target="_blank" class="btn btn-sm btn-outline-secondary" title="PugetMesh Map">
+                <i class="bi bi-geo-alt"></i>
+              </a>
+              <a href="https://meshmap.net/#{{ id }}" target="_blank" class="btn btn-sm btn-outline-secondary" title="MeshMap">
+                <i class="bi bi-globe"></i>
+              </a>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="alert alert-info">
+      You don't have any linked nodes. Click the "Link New Node" button to get started.
+    </div>
+  {% endif %}
 </div>
+
+<script type="module">
+import Map from 'ol/Map.js';
+import View from 'ol/View.js';
+import TileLayer from 'ol/layer/Tile.js';
+import OSM from 'ol/source/OSM.js';
+import VectorLayer from 'ol/layer/Vector.js';
+import VectorSource from 'ol/source/Vector.js';
+import Feature from 'ol/Feature.js';
+import Point from 'ol/geom/Point.js';
+import {fromLonLat} from 'ol/proj.js';
+import Style from 'ol/style/Style.js';
+import Circle from 'ol/style/Circle.js';
+import Fill from 'ol/style/Fill.js';
+import Stroke from 'ol/style/Stroke.js';
+
+document.addEventListener('DOMContentLoaded', function() {
+  try {
+    {% for id, node in nodes.items() %}
+      {% if node.position and node.position.latitude_i and node.position.longitude_i %}
+        {
+          const map_{{ id }} = new Map({
+            target: 'map_{{ id }}',
+            layers: [
+              new TileLayer({
+                source: new OSM()
+              })
+            ],
+            view: new View({
+              center: fromLonLat([{{ node.position.longitude_i / 1e7 }}, {{ node.position.latitude_i / 1e7 }}]),
+              zoom: 12
+            }),
+            interactions: []
+          });
+
+          const feature = new Feature({
+            geometry: new Point(
+              fromLonLat([{{ node.position.longitude_i / 1e7 }}, {{ node.position.latitude_i / 1e7 }}])
+            )
+          });
+
+          const vectorSource = new VectorSource({
+            features: [feature]
+          });
+
+          const vectorLayer = new VectorLayer({
+            source: vectorSource,
+            style: new Style({
+              image: new Circle({
+                radius: 6,
+                fill: new Fill({
+                  color: '{{ "rgba(50, 240, 50, 1)" if node.active else "rgba(0, 0, 0, 0.50)" }}'
+                }),
+                stroke: new Stroke({
+                  color: 'white',
+                  width: 2
+                })
+              })
+            })
+          });
+
+          map_{{ id }}.addLayer(vectorLayer);
+        }
+      {% endif %}
+    {% endfor %}
+  } catch (e) {
+    console.error('Map error:', e);
+  }
+});
+</script>
+
+<style>
+.map {
+  border-radius: 4px;
+  overflow: hidden;
+  pointer-events: none;
+}
+.card {
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  transition: transform 0.2s;
+}
+.card:hover {
+  transform: translateY(-2px);
+}
+.badge {
+  font-size: 0.8em;
+  padding: 0.4em 0.6em;
+}
+</style>
 {% endblock %}

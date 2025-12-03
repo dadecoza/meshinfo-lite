@@ -3,19 +3,52 @@
 
 {% block title %}Chat | MeshInfo{% endblock %}
 
+{% block og_title %}Chat | {{ config['mesh']['name'] }}{% endblock %}
+{% block og_description %}Real-time chat messages from the {{ config['mesh']['short_name'] }} mesh network. View conversations, message propagation, and network activity.{% endblock %}
+{% block og_image_width %}1200{% endblock %}
+{% block og_image_height %}630{% endblock %}
+{% block twitter_title %}Chat | {{ config['mesh']['name'] }}{% endblock %}
+{% block twitter_description %}Real-time chat messages from the {{ config['mesh']['short_name'] }} mesh network. View conversations, message propagation, and network activity.{% endblock %}
+{% block twitter_image_width %}1200{% endblock %}
+{% block twitter_image_height %}630{% endblock %}
+
 {% block head %}
+  {{ super() }}
+
 <script>
-// Function to initialize popovers
+// Wait for jQuery to be available before initializing popovers
 function initializePopovers() {
     if (typeof jQuery !== 'undefined') {
-        // Only initialize popovers on desktop
+        // Initialize popovers on desktop
         if (window.innerWidth > 768) {
-            $('[data-toggle="popover"]').popover({
+            // Initialize hover popovers for receiver badges and node links
+            $('[data-toggle="popover"]:not(#channelFilterBtn)').popover({
                 html: true,
                 trigger: 'hover',
                 placement: 'bottom',
                 container: 'body',
-                delay: { show: 50, hide: 100 }
+                delay: { show: 200, hide: 100 }
+            });
+            
+            // Initialize click popover for channel filter button
+            $('#channelFilterBtn').popover({
+                html: true,
+                trigger: 'click',
+                placement: 'bottom',
+                container: 'body',
+                delay: { show: 0, hide: 0 }
+            });
+            
+            // Prevent channel filter popover from closing when clicking inside it
+            $(document).on('click', '.popover', function(e) {
+                e.stopPropagation();
+            });
+            
+            // Close channel filter popover when clicking outside
+            $(document).on('click', function(e) {
+                if (!$(e.target).closest('.popover, #channelFilterBtn').length) {
+                    $('#channelFilterBtn').popover('hide');
+                }
             });
         } else {
             // Destroy any existing popovers on mobile
@@ -25,15 +58,20 @@ function initializePopovers() {
 }
 
 // Initialize on DOM content loaded
-document.addEventListener('DOMContentLoaded', initializePopovers);
+document.addEventListener('DOMContentLoaded', function() {
+    // Wait a bit for jQuery to load
+    setTimeout(initializePopovers, 100);
+});
 
 // Re-initialize on window resize
 let resizeTimer;
 window.addEventListener('resize', function() {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(function() {
-        $('[data-toggle="popover"]').popover('dispose');
-        initializePopovers();
+        if (typeof jQuery !== 'undefined') {
+            $('[data-toggle="popover"]').popover('dispose');
+            initializePopovers();
+        }
     }, 250);
 });
 
@@ -43,6 +81,391 @@ window.addEventListener('load', function() {
         initializePopovers();
     }
 });
+
+// Client-side distance calculation
+function calculateDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Earth's radius in kilometers
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+}
+
+// Load position data and update tooltips with distances
+async function loadDistancesForMessage(messageContainer) {
+    try {
+        // Get sender and receiver IDs for this specific message
+        const senderId = messageContainer.getAttribute('data-sender-id');
+        const receiverBadges = messageContainer.querySelectorAll('.reception-badge[data-receiver-id]');
+        
+        if (!senderId || receiverBadges.length === 0) {
+            return; // No need to calculate distances
+        }
+        
+        // Collect node IDs for this message only
+        const nodeIds = new Set([senderId]);
+        receiverBadges.forEach(badge => {
+            const receiverId = badge.getAttribute('data-receiver-id');
+            if (receiverId) nodeIds.add(receiverId);
+        });
+        
+        console.log(`Loading positions for message: ${Array.from(nodeIds)}`);
+        
+        // Fetch positions for this message's nodes
+        const nodeIdsArray = Array.from(nodeIds);
+        const response = await fetch(`/api/node-positions?nodes=${nodeIdsArray.join(',')}`);
+        if (!response.ok) {
+            console.warn('Failed to load node positions for distance calculation');
+            return;
+        }
+        
+        const data = await response.json();
+        const positions = data.positions;
+        
+        // Update receiver popovers for this message only
+        let updatedCount = 0;
+        receiverBadges.forEach(badge => {
+            try {
+                const receiverId = badge.getAttribute('data-receiver-id');
+                
+                if (senderId && receiverId && positions[senderId] && positions[receiverId]) {
+                    const senderPos = positions[senderId];
+                    const receiverPos = positions[receiverId];
+                    const distance = calculateDistance(
+                        senderPos.latitude, senderPos.longitude,
+                        receiverPos.latitude, receiverPos.longitude
+                    );
+                    
+                    console.log(`Distance ${senderId} -> ${receiverId}: ${distance.toFixed(2)} km`);
+                    
+                    // Update desktop popover
+                    const currentContent = badge.getAttribute('data-content');
+                    if (currentContent && !currentContent.includes('Distance:')) {
+                        const newContent = currentContent.replace('</div>', 
+                            `<br>Distance: ${distance.toFixed(2)} km</div>`);
+                        const $badge = $(badge);
+                        const popover = $badge.data('bs.popover');
+                        badge.setAttribute('data-content', newContent);
+
+                        if (popover && $badge.attr('aria-describedby')) {
+                            // If popover is visible, update its content live
+                            const popoverId = $badge.attr('aria-describedby');
+                            const popoverElem = document.getElementById(popoverId);
+                            if (popoverElem) {
+                                const popoverBody = popoverElem.querySelector('.popover-body');
+                                if (popoverBody) {
+                                    popoverBody.innerHTML = newContent;
+                                }
+                            }
+                        } else if (!popover) {
+                            // If not initialized, initialize it
+                            $badge.popover({
+                                html: true,
+                                trigger: 'hover',
+                                placement: 'bottom',
+                                container: 'body',
+                                delay: { show: 50, hide: 100 }
+                            });
+                        }
+                        updatedCount++;
+                    }
+
+                    // Update mobile view
+                    const mobileRow = messageContainer.querySelector(`.mobile-reception-row [href="/node_${receiverId}.html"]`)?.closest('.mobile-reception-row');
+                    if (mobileRow && !mobileRow.querySelector('.distance-metric')) {
+                        const metricsDiv = mobileRow.querySelector('.mobile-metrics');
+                        if (metricsDiv) {
+                            const distanceDiv = document.createElement('div');
+                            distanceDiv.className = 'metric distance-metric';
+                            distanceDiv.innerHTML = `<span>Distance: ${distance.toFixed(2)} km</span>`;
+                            metricsDiv.appendChild(distanceDiv);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.warn('Error updating popover for badge:', error);
+            }
+        });
+        
+        console.log(`Updated ${updatedCount} popovers with distance information for this message`);
+        
+    } catch (error) {
+        console.warn('Error loading distances for message:', error);
+    }
+}
+
+// Load distances for all messages on the page
+async function loadDistancesForAllMessages() {
+    const messageContainers = document.querySelectorAll('.message-container');
+    for (const container of messageContainers) {
+        await loadDistancesForMessage(container);
+    }
+}
+
+// Batch load distances for mobile (load all at once)
+async function batchLoadDistancesForMobile() {
+    try {
+        const messageContainers = document.querySelectorAll('.message-container');
+        const allNodeIds = new Set();
+        
+        messageContainers.forEach(container => {
+            const senderId = container.getAttribute('data-sender-id');
+            const receiverBadges = container.querySelectorAll('.reception-badge[data-receiver-id]');
+            
+            if (senderId) allNodeIds.add(senderId);
+            receiverBadges.forEach(badge => {
+                const receiverId = badge.getAttribute('data-receiver-id');
+                if (receiverId) allNodeIds.add(receiverId);
+            });
+        });
+        
+        if (allNodeIds.size === 0) return;
+        
+        console.log(`Loading positions for ${allNodeIds.size} nodes`);
+        
+        const response = await fetch('/api/node-positions?nodes=' + Array.from(allNodeIds).join(','));
+        if (!response.ok) {
+            console.warn('Failed to fetch node positions');
+            return;
+        }
+        
+        const data = await response.json();
+        const positions = data.positions;
+        
+        // Update all tooltips with distances
+        messageContainers.forEach(container => {
+            const senderId = container.getAttribute('data-sender-id');
+            const receiverBadges = container.querySelectorAll('.reception-badge[data-receiver-id]');
+            
+            receiverBadges.forEach(badge => {
+                const receiverId = badge.getAttribute('data-receiver-id');
+                const senderPos = positions[senderId];
+                const receiverPos = positions[receiverId];
+                
+                if (senderPos && receiverPos && senderPos.latitude && receiverPos.latitude) {
+                    const distance = calculateDistance(
+                        senderPos.latitude, senderPos.longitude,
+                        receiverPos.latitude, receiverPos.longitude
+                    );
+                    
+                    // Update mobile view
+                    const mobileRow = container.querySelector(`.mobile-reception-row [href="/node_${receiverId}.html"]`)?.closest('.mobile-reception-row');
+                    if (mobileRow && !mobileRow.querySelector('.distance-metric')) {
+                        const metricsDiv = mobileRow.querySelector('.mobile-metrics');
+                        if (metricsDiv) {
+                            const distanceDiv = document.createElement('div');
+                            distanceDiv.className = 'metric distance-metric';
+                            distanceDiv.innerHTML = `<span>Distance: ${distance.toFixed(2)} km</span>`;
+                            metricsDiv.appendChild(distanceDiv);
+                        }
+                    }
+                }
+            });
+        });
+        
+    } catch (error) {
+        console.error('Error batch loading distances:', error);
+    }
+}
+
+// Set up hover-based prefetch
+function setupHoverPrefetch() {
+    let hoverTimer = null;
+    const processedMessages = new Set(); // Track which messages we've already processed
+    
+    document.querySelectorAll('.message-container').forEach(container => {
+        container.addEventListener('mouseenter', function() {
+            const messageId = this.getAttribute('data-message-id') || this.querySelector('.message-content')?.textContent?.slice(0, 50);
+            
+            // Skip if we've already processed this message
+            if (processedMessages.has(messageId)) {
+                return;
+            }
+            
+            // Clear any existing timer
+            if (hoverTimer) {
+                clearTimeout(hoverTimer);
+            }
+            
+            // Set a small delay to avoid triggering on accidental hovers
+            hoverTimer = setTimeout(() => {
+                loadDistancesForMessage(this);
+                processedMessages.add(messageId);
+            }, 200); // 200ms delay
+        });
+        
+        container.addEventListener('mouseleave', function() {
+            // Clear the timer if user moves away before delay
+            if (hoverTimer) {
+                clearTimeout(hoverTimer);
+                hoverTimer = null;
+            }
+        });
+    });
+}
+
+// Initialize hover prefetch after page loads
+window.addEventListener('load', function() {
+    // Small delay to ensure DOM is ready
+    if (window.innerWidth >= 768) {
+        setTimeout(setupHoverPrefetch, 100);
+    } else {
+        setTimeout(batchLoadDistancesForMobile, 200);
+    }
+});
+
+// Channel filter functions
+function applyChannelFilter() {
+    const checkboxes = document.querySelectorAll('.channel-checkbox:checked');
+    const selectedChannels = [];
+    checkboxes.forEach(checkbox => {
+        if (checkbox.value !== 'all') {
+            selectedChannels.push(checkbox.value);
+        }
+    });
+    
+    // Build URL with selected channels
+    const currentUrl = new URL(window.location.href);
+    if (selectedChannels.length === 0) {
+        currentUrl.searchParams.set('channel', 'all');
+    } else {
+        currentUrl.searchParams.set('channel', selectedChannels.join(','));
+    }
+    currentUrl.searchParams.set('page', 1); // Reset to first page on filter
+    
+    // Save the filter choice to localStorage
+    const filterChoice = selectedChannels.length === 0 ? 'all' : selectedChannels.join(',');
+    localStorage.setItem('chatChannelFilter', filterChoice);
+    
+    window.location.href = currentUrl.toString();
+}
+
+// Load saved filter choice on page load
+function loadSavedChannelFilter() {
+    const savedFilter = localStorage.getItem('chatChannelFilter');
+    if (savedFilter && savedFilter !== 'all') {
+        // Check if the current URL doesn't already have a channel parameter
+        const currentUrl = new URL(window.location.href);
+        if (!currentUrl.searchParams.has('channel')) {
+            // Redirect to include the saved filter
+            currentUrl.searchParams.set('channel', savedFilter);
+            window.location.href = currentUrl.toString();
+        }
+    }
+}
+
+// Initialize saved filter when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    loadSavedChannelFilter();
+});
+
+// Add a mapping from channel value to short name for use in JS
+var channelShortNames = {
+    {% for channel_info in available_channels %}
+        {{ channel_info.value }}: '{{ channel_info.short_name }}'{% if not loop.last %},{% endif %}
+    {% endfor %}
+};
+
+function updateChannelFilterLabel() {
+    const checkboxes = document.querySelectorAll('.channel-checkbox:checked');
+    let selected = [];
+    checkboxes.forEach(cb => {
+        if (cb.value !== 'all') selected.push(parseInt(cb.value));
+    });
+    let label = '';
+    if (selected.length === 0 || document.getElementById('channel-all').checked) {
+        label = 'All';
+    } else {
+        // Debug: log the channelShortNames object and selected values
+        console.log('channelShortNames:', channelShortNames);
+        console.log('selected values:', selected);
+        label = selected.map(val => {
+            const shortName = channelShortNames[val] || val;
+            console.log(`Mapping ${val} to ${shortName}`);
+            return shortName;
+        }).join(', ');
+    }
+    console.log('Final label:', label);
+    document.getElementById('channelFilterLabel').textContent = label;
+}
+
+// Handle mutual exclusivity between "All" and individual channels
+function handleChannelSelection(changedCheckbox) {
+    const allCheckbox = document.getElementById('channel-all');
+    const individualCheckboxes = document.querySelectorAll('.channel-checkbox:not(#channel-all)');
+    
+    if (changedCheckbox.value === 'all') {
+        // If "All" was checked, uncheck all individual channels
+        if (changedCheckbox.checked) {
+            individualCheckboxes.forEach(cb => {
+                cb.checked = false;
+            });
+        }
+    } else {
+        // If an individual channel was checked, uncheck "All"
+        if (changedCheckbox.checked) {
+            allCheckbox.checked = false;
+        }
+        // If an individual channel was unchecked and no others are checked, check "All"
+        else {
+            const anyIndividualChecked = Array.from(individualCheckboxes).some(cb => cb.checked);
+            if (!anyIndividualChecked) {
+                allCheckbox.checked = true;
+            }
+        }
+    }
+    
+    // Update the label
+    updateChannelFilterLabel();
+}
+
+// When popover is shown, update checkboxes and label
+function initializeChannelFilter() {
+    if (typeof jQuery !== 'undefined' && typeof $ !== 'undefined') {
+        $(document).on('shown.bs.popover', '#channelFilterBtn', function () {
+            // Update label on checkbox change
+            $('.channel-checkbox').on('change', function() {
+                handleChannelSelection(this);
+            });
+            
+            // Ensure checkboxes reflect current URL parameters
+            const currentUrl = new URL(window.location.href);
+            const currentChannel = currentUrl.searchParams.get('channel') || 'all';
+            
+            // Reset all checkboxes first
+            $('.channel-checkbox').prop('checked', false);
+            
+            if (currentChannel === 'all') {
+                $('#channel-all').prop('checked', true);
+            } else {
+                const selectedChannels = currentChannel.split(',');
+                selectedChannels.forEach(channel => {
+                    $(`#channel-${channel}`).prop('checked', true);
+                });
+            }
+            
+            updateChannelFilterLabel();
+        });
+
+        // When popover is hidden, clean up event handlers
+        $(document).on('hidden.bs.popover', '#channelFilterBtn', function () {
+            $('.channel-checkbox').off('change');
+        });
+    } else {
+        // Retry after a short delay if jQuery isn't loaded yet
+        setTimeout(initializeChannelFilter, 100);
+    }
+}
+
+// Initialize when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeChannelFilter);
+} else {
+    initializeChannelFilter();
+}
 </script>
 {% endblock %}
 
@@ -52,11 +475,39 @@ window.addEventListener('load', function() {
         <h5>🗨️ Chat</h5>
         <div class="d-flex align-items-center gap-3">
             <div class="text-muted" style="margin-right: 1em;">
-                Showing {{ pagination.start_item }} to {{ pagination.end_item }} of {{ pagination.total }} messages
+                Showing {{ (pagination.page - 1) * pagination.per_page + 1 }} to {{ pagination.page * pagination.per_page if pagination.page * pagination.per_page < pagination.total else pagination.total }} of {{ pagination.total }} messages
+            </div>
+            <div class="me-3" style="margin-right: 1em;">
+                <button type="button" id="channelFilterBtn" class="btn btn-outline-secondary btn-sm" data-toggle="popover" data-html="true" data-placement="bottom" title="Select Channels" data-content="
+                    <div class='channel-filter-popover'>
+                        <div class='mb-2'>
+                            <label class='form-check'>
+                                <input type='checkbox' class='form-check-input channel-checkbox' value='all' id='channel-all' {% if request.args.get('channel', 'all') == 'all' %}checked{% endif %}>
+                                <label class='form-check-label' for='channel-all'>All Channels</label>
+                            </label>
+                        </div>
+                        <hr class='my-2'>
+                        {% for channel_info in available_channels %}
+                        <div class='mb-1'>
+                            <label class='form-check'>
+                                <input type='checkbox' class='form-check-input channel-checkbox' value='{{ channel_info.value }}' id='channel-{{ channel_info.value }}' 
+                                    {% if request.args.get('channel') and channel_info.value|string in request.args.get('channel').split(',') %}checked{% endif %}>
+                                <label class='form-check-label' for='channel-{{ channel_info.value }}'>{{ channel_info.name }} ({{ channel_info.short_name }})</label>
+                            </label>
+                        </div>
+                        {% endfor %}
+                        <hr class='my-2'>
+                        <button type='button' class='btn btn-primary btn-sm w-100' onclick='applyChannelFilter()'>Apply</button>
+                    </div>
+                ">
+                    Channels: <span id="channelFilterLabel">
+                        {{ channel_display }}
+                    </span>
+                </button>
             </div>
             <div class="btn-group">
                 {% if pagination.has_prev %}
-                <a href="?page={{ pagination.prev_num }}" class="btn btn-outline-secondary btn-sm" title="Previous page">
+                <a href="?page={{ pagination.prev_num }}{% if request.args.get('channel') %}&channel={{ request.args.get('channel') }}{% endif %}" class="btn btn-outline-secondary btn-sm" title="Previous page">
                     <i class="bi bi-arrow-left"></i>
                 </a>
                 {% else %}
@@ -66,7 +517,7 @@ window.addEventListener('load', function() {
                 {% endif %}
 
                 {% if pagination.has_next %}
-                <a href="?page={{ pagination.next_num }}" class="btn btn-outline-secondary btn-sm" title="Next page">
+                <a href="?page={{ pagination.next_num }}{% if request.args.get('channel') %}&channel={{ request.args.get('channel') }}{% endif %}" class="btn btn-outline-secondary btn-sm" title="Next page">
                     <i class="bi bi-arrow-right"></i>
                 </a>
                 {% else %}
@@ -80,56 +531,189 @@ window.addEventListener('load', function() {
 
     <div class="chat-messages">
         {% for message in chat %}
-        <div class="message-container">
+        <div class="message-container" data-sender-id="{{ message.from }}" data-message-id="{{ message.message_id }}">
             <div class="message-bubble">
-                <div class="message-header">
-                    <span class="message-sender">
-                        {% if message.from in nodes %}
-                            <a href="/node_{{ message.from }}.html" 
-                            class="node-link"
-                            data-toggle="popover"
-                            data-content="<div class='receiver-popover'>
-                                <strong>{{ nodes[message.from].long_name }}</strong><br>
-                                {% if nodes[message.from].description %}
-                                {{ nodes[message.from].description }}<br>
-                                {% endif %}
-                                {% if nodes[message.from].position and nodes[message.from].position.latitude is not none and nodes[message.from].position.longitude is not none %}
-                                Lat: {{ '%.5f'|format(nodes[message.from].position.latitude) }}<br>
-                                Lon: {{ '%.5f'|format(nodes[message.from].position.longitude) }}<br>
-                                {% if nodes[message.from].position.altitude is not none %}
-                                Alt: {{ nodes[message.from].position.altitude }}m<br>
-                                {% endif %}
-                                {% endif %}
-                                {% if nodes[message.from].owner %}
-                                Owner: {{ nodes[message.from].owner }}
-                                {% endif %}">
-                                {{ nodes[message.from].long_name }} ({{ nodes[message.from].short_name }})
-                            </a>
-                        {% else %}
-                            {{ message.from }}
+                <div class="message-header d-flex justify-content-between align-items-center"> {# Make header a flex container #}
+                    {# Group 1: Sender and optional Recipient #}
+                    <div class="d-flex align-items-center"> {# Container for left-aligned items #}
+                        {# Sender Span (Always Shown) #}
+                        <span class="message-sender">
+                            {% if message.from in nodes %}
+                                {% set sender = nodes[message.from] %}
+                                <a href="/node_{{ message.from }}.html"
+                                class="node-link"
+                                data-toggle="popover"
+                                data-content="<div class='receiver-popover'>
+                                    <strong>{{ sender.long_name|replace('"', '&quot;') }}</strong><br>
+
+                                    {# Hardware Info #}
+                                    {% if sender.hw_model %}
+                                        HW: {{ sender.hw_model_name if sender.hw_model_name else 'Unknown' }}<br>
+                                    {% endif %}
+                                    {% if sender.firmware_version %}
+                                        FW: {{ sender.firmware_version }}<br>
+                                    {% endif %}
+
+                                    {# Role Display #}
+                                    {% if sender.role is not none %}
+                                        Role: {{ sender.role_name }}<br>
+                                    {% endif %}
+
+                                    {# Owner #}
+                                    {% if sender.owner_username %}
+                                        Owner: {{ sender.owner_username }}<br>
+                                    {% endif %}
+
+                                    {# Location #}
+                                    {% if sender.position %}
+                                        {% if sender.position.geocoded %}
+                                            Loc: {{ sender.position.geocoded }}<br>
+                                        {% elif sender.position.latitude is not none and sender.position.longitude is not none %}
+                                            Lat: {{ '%.5f'|format(sender.position.latitude) }}, Lon: {{ '%.5f'|format(sender.position.longitude) }}
+                                            {% if sender.position.altitude is not none %}
+                                                Alt: {{ sender.position.altitude }}m
+                                            {% endif %}<br>
+                                        {% endif %}
+                                    {% endif %}
+
+                                    {# Telemetry Status #}
+                                    {% if sender.telemetry %}
+                                        {% if sender.telemetry.battery_level is not none %}
+                                            Batt: {{ sender.telemetry.battery_level }}%
+                                            {% if sender.telemetry.voltage is not none %}
+                                                ({{ '%.2f'|format(sender.telemetry.voltage) }}V)
+                                            {% endif %}<br>
+                                        {% elif sender.telemetry.voltage is not none %}
+                                            Voltage: {{ '%.2f'|format(sender.telemetry.voltage) }}V<br>
+                                        {% endif %}
+                                        {# Optional: Environmentals #}
+                                        {% if sender.telemetry.temperature is not none %} Temp: {{ '%.1f'|format(sender.telemetry.temperature) }}&deg;C {% endif %}
+                                        {% if sender.telemetry.relative_humidity is not none %} RH: {{ '%.1f'|format(sender.telemetry.relative_humidity) }}% {% endif %}
+                                        {% if sender.telemetry.barometric_pressure is not none %} Pres: {{ '%.1f'|format(sender.telemetry.barometric_pressure / 100) }}hPa {% endif %}
+                                        {% if sender.telemetry.temperature is not none or sender.telemetry.relative_humidity is not none or sender.telemetry.barometric_pressure is not none %}<br>{% endif %}
+                                    {% endif %}
+
+                                    {# Last Seen #}
+                                    Last Seen: {{ time_ago(sender.ts_seen) }}
+                                </div>">
+                                    {{ sender.long_name|replace('"', '&quot;') }} ({{ sender.short_name|replace('"', '&quot;') }})
+                                </a>
+                            {% else %}
+                                {{ message.from }}
+                            {% endif %}
+                        </span>
+
+                        {# Direct Message Indicator and Recipient (Conditional) #}
+                        {% if message.to != 'ffffffff' and message.to in nodes %}
+                            <span class="dm-indicator mx-1" data-toggle="tooltip" data-placement="top" title="Direct Message">
+                                <i class="bi bi-arrow-right-short"></i>
+                            </span>
+                            <span class="message-recipient">
+                                <a href="/node_{{ message.to }}.html"
+                                    class="node-link"
+                                    data-toggle="popover"
+                                    data-content="<div class='receiver-popover'>
+                                        <strong>{{ nodes[message.to].long_name|replace('"', '&quot;') }}</strong><br>
+
+                                        {# Hardware Info #}
+                                        {% if nodes[message.to].hw_model %}
+                                            HW: {{ nodes[message.to].hw_model_name if nodes[message.to].hw_model_name else 'Unknown' }}<br>
+                                        {% endif %}
+                                        {% if nodes[message.to].firmware_version %}
+                                            FW: {{ nodes[message.to].firmware_version }}<br>
+                                        {% endif %}
+
+                                        {# Role Display #}
+                                        {% if nodes[message.to].role is not none %}
+                                            Role: 
+                                            {% set role_val = nodes[message.to].role %}
+                                            {% if role_val == 0 %}Client
+                                            {% elif role_val == 1 %}Client Mute
+                                            {% elif role_val == 2 %}Router
+                                            {% elif role_val == 3 %}Router Client
+                                            {% elif role_val == 4 %}Repeater
+                                            {% elif role_val == 5 %}Tracker
+                                            {% elif role_val == 6 %}Sensor
+                                            {% elif role_val == 7 %}TAK
+                                            {% elif role_val == 8 %}Client Hidden
+                                            {% elif role_val == 9 %}Lost and Found
+                                            {% elif role_val == 10 %}TAK Tracker
+                                            {% elif role_val == 11 %}Router Late
+                                            {% elif role_val == 12 %}Client Base
+                                            {% else %}Unknown ({{ role_val }})
+                                            {% endif %}<br>
+                                        {% endif %}
+
+                                        {# Owner #}
+                                        {% if nodes[message.to].owner_username %}
+                                            Owner: {{ nodes[message.to].owner_username }}<br>
+                                        {% elif nodes[message.to].owner %}
+                                            Owner: {{ nodes[message.to].owner }}<br> {# Fallback to email #}
+                                        {% endif %}
+
+                                        {# Location #}
+                                        {% if nodes[message.to].position %}
+                                            {% if nodes[message.to].position.geocoded %}
+                                                Loc: {{ nodes[message.to].position.geocoded }}<br>
+                                            {% elif nodes[message.to].position.latitude is not none and nodes[message.to].position.longitude is not none %}
+                                                Lat: {{ '%.5f'|format(nodes[message.to].position.latitude) }}, Lon: {{ '%.5f'|format(nodes[message.to].position.longitude) }}
+                                                {% if nodes[message.to].position.altitude is not none %}
+                                                    Alt: {{ nodes[message.to].position.altitude }}m
+                                                {% endif %}<br>
+                                            {% endif %}
+                                        {% endif %}
+
+                                        {# Telemetry Status #}
+                                        {% if nodes[message.to].telemetry %}
+                                            {% if nodes[message.to].telemetry.battery_level is not none %}
+                                                Batt: {{ nodes[message.to].telemetry.battery_level }}%
+                                                {% if nodes[message.to].telemetry.voltage is not none %}
+                                                    ({{ '%.2f'|format(nodes[message.to].telemetry.voltage) }}V)
+                                                {% endif %}<br>
+                                            {% elif nodes[message.to].telemetry.voltage is not none %}
+                                                Voltage: {{ '%.2f'|format(nodes[message.to].telemetry.voltage) }}V<br>
+                                            {% endif %}
+                                            {# Optional: Environmentals #}
+                                            {% if nodes[message.to].telemetry.temperature is not none %} Temp: {{ '%.1f'|format(nodes[message.to].telemetry.temperature) }}&deg;C {% endif %}
+                                            {% if nodes[message.to].telemetry.relative_humidity is not none %} RH: {{ '%.1f'|format(nodes[message.to].telemetry.relative_humidity) }}% {% endif %}
+                                            {% if nodes[message.to].telemetry.barometric_pressure is not none %} Pres: {{ '%.1f'|format(nodes[message.to].telemetry.barometric_pressure / 100) }}hPa {% endif %}
+                                            {% if nodes[message.to].telemetry.temperature is not none or nodes[message.to].telemetry.relative_humidity is not none or nodes[message.to].telemetry.barometric_pressure is not none %}<br>{% endif %}
+                                        {% endif %}
+
+                                        {# Last Seen #}
+                                        Last Seen: {{ time_ago(nodes[message.to].ts_seen) }}
+                                    </div>">
+                                    {{ nodes[message.to].long_name|replace('"', '&quot;') }} ({{ nodes[message.to].short_name|replace('"', '&quot;') }})
+                                </a>
+                            </span>
                         {% endif %}
-                    </span>
-                    <span class="message-channel">Ch {{ message.channel }}</span>
-                    <span class="message-timestamp" title="{{ format_timestamp(message.ts_created) }}">
-                        {{ time_ago(message.ts_created) }}
-                    </span>
-                    {% if message.from in nodes and nodes[message.from].position and message.receptions %}
-                    <a href="/message_map.html?id={{ message.message_id }}" 
-                       class="map-link" 
-                       title="View Message Propagation">
-                        <i class="bi bi-map"></i>
-                    </a>
-                    {% else %}
-                    <span class="map-link-placeholder"></span>
-                    {% endif %}
+                        {# End DM Indicator #}
+                    </div>
+
+                    {# Group 2: Channel, Timestamp, Map Icon #}
+                    <div class="d-flex align-items-center"> {# Container for right-aligned items #}
+                        <span class="message-timestamp me-2" title="{{ format_timestamp(message.ts_created) }}">
+                            {{ time_ago(message.ts_created) }}
+                        </span>
+                        <span class="message-channel me-2" style="background-color: {{ utils.get_channel_color(message.channel) }}; color: white; padding: 2px 6px; border-radius: 4px;" title="Channel {{ message.channel }} ({{ utils.get_channel_name(message.channel) }})">{{ utils.get_channel_name(message.channel, use_short_names=True) }}</span>
+                        {% if message.from in nodes and nodes[message.from].position %}
+                        <a href="/message_map.html?id={{ message.message_id }}"
+                        class="map-link"
+                        title="View Message Propagation">
+                            <i class="bi bi-map"></i>
+                        </a>
+                        {% else %}
+                        <span class="map-link-placeholder"></span>
+                        {% endif %}
+                    </div>
                 </div>
                 <div class="message-content">
                     {{ message.text }}
                 </div>
                 {% if message.receptions %}
-                <div class="message-receptions">
+                <div class="message-receptions" style="width: 100%; display: flex; flex-wrap: wrap; gap: 2px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(0, 0, 0, 0.1);">
                     <!-- Desktop View (existing) -->
-                    <div class="desktop-receptions">
+                    <div class="desktop-receptions" style="display: flex; flex-wrap: wrap; gap: 2px; width: 100%;">
                         {% for reception in message.receptions %}
                             {% set node_id = utils.convert_node_id_from_int_to_hex(reception.node_id) %}
                             {% if node_id in nodes %}
@@ -137,16 +721,20 @@ window.addEventListener('load', function() {
                             <a href="/node_{{ node_id }}.html" 
                             class="reception-badge {% if reception.rx_snr > 0 %}snr-good{% elif reception.rx_snr > -5 %}snr-adequate{% elif reception.rx_snr > -10 %}snr-poor{% else %}snr-very-poor{% endif %}"
                             data-toggle="popover"
+                            data-receiver-id="{{ node_id }}"
                             data-content="<div class='receiver-popover'>
-                                <strong>{{ node.long_name }}</strong><br>
+                                <strong>{{ node.long_name|replace('"', '&quot;') }}</strong><br>
                                 SNR: {{ '%.1f'|format(reception.rx_snr) }}dB<br>
                                 RSSI: {{ reception.rx_rssi }}dBm
                                 {% if reception.hop_start is not none and reception.hop_limit is not none %}
                                 <br>Hops: {{ reception.hop_start - reception.hop_limit }} of {{ reception.hop_start }}
                                 {% endif %}
+                                {% if reception.rx_time and message.ts_created %}
+                                <br>Reception: +{{ format_duration(reception.rx_time - message.ts_created) }} after sent
+                                {% endif %}
                                 </div>">
                                 <span class="snr-indicator"></span>
-                                {{ node.short_name }}
+                                {{ node.short_name|replace('"', '&quot;') }}
                             </a>
                             {% endif %}
                         {% endfor %}
@@ -160,7 +748,7 @@ window.addEventListener('load', function() {
                             {% set node = nodes[node_id] %}
                             <div class="mobile-reception-row">
                                 <div class="mobile-node-name">
-                                    <a href="/node_{{ node_id }}.html">{{ node.long_name }}</a>
+                                    <a href="/node_{{ node_id }}.html">{{ node.long_name|replace('"', '&quot;') }}</a>
                                 </div>
                                 <div class="mobile-metrics">
                                     <div class="metric snr {% if reception.rx_snr > 0 %}snr-good{% elif reception.rx_snr > -5 %}snr-adequate{% elif reception.rx_snr > -10 %}snr-poor{% else %}snr-very-poor{% endif %}">
@@ -189,7 +777,7 @@ window.addEventListener('load', function() {
 
     {% if pagination.has_next %}
     <div class="load-more">
-        <button type="button" id="loadOlderMessages" onclick="window.location.href='?page={{ pagination.next_num }}'">
+        <button type="button" id="loadOlderMessages" onclick="window.location.href='?page={{ pagination.next_num }}{% if request.args.get('channel') %}&channel={{ request.args.get('channel') }}{% endif %}'">
             Load older messages
         </button>
     </div>
@@ -200,5 +788,21 @@ window.addEventListener('load', function() {
         </button>
     </div>
     {% endif %}
+
+    <div class="text-center mt-4">
+        <a href="/chat-classic.html" class="btn btn-outline-secondary btn-sm">
+            Classic Chat
+        </a>
+    </div>
 </div>
 {% endblock %}
+
+<!-- Hidden element with channel data for JavaScript -->
+<span id="availableChannelsJson" style="display:none;">{{ available_channels | tojson }}</span>
+
+{% macro format_duration(seconds) %}
+    {%- set s = seconds|int %}
+    {%- set m = s // 60 %}
+    {%- set s = s % 60 %}
+    {%- if m > 0 %}{{ m }}m {% endif %}{{ s }}s
+{% endmacro %}

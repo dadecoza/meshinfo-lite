@@ -1,0 +1,751 @@
+{% set this_page = "message-paths" %}
+{% extends "layout.html.j2" %}
+
+{% block title %}Message Paths | MeshInfo{% endblock %}
+
+{% block og_title %}Message Paths | {{ config['mesh']['name'] }}{% endblock %}
+{% block og_description %}Visualize inferred relay paths and message propagation in the {{ config['mesh']['short_name'] }} mesh network. See how messages flow through intermediate nodes.{% endblock %}
+{% block og_image_width %}1200{% endblock %}
+{% block og_image_height %}630{% endblock %}
+{% block twitter_title %}Message Paths | {{ config['mesh']['name'] }}{% endblock %}
+{% block twitter_description %}Visualize inferred relay paths and message propagation in the {{ config['mesh']['short_name'] }} mesh network. See how messages flow through intermediate nodes.{% endblock %}
+{% block twitter_image_width %}1200{% endblock %}
+{% block twitter_image_height %}630{% endblock %}
+
+{% block head %}
+  {{ super() }}
+{% endblock %}
+
+{% block content %}
+  <div class="container pt-3">
+    <h5>📡 Message Paths</h5>
+    <p class="text-muted">
+      Visualizing inferred relay paths based on message propagation data. 
+      Each edge represents a relay relationship where messages passed through intermediate nodes.
+      <br>
+      <small class="text-muted">Tip: Hold the Shift key to view detailed edge information.</small>
+    </p>
+
+    <div class="row mb-3">
+      <div class="col-md-6">
+        {% set days_val = request.args.get('days', '0.167') %}
+        <div class="btn-group" role="group" aria-label="Time filter">
+          <button type="button" class="btn btn-outline-primary{% if days_val == '0.167' %} active{% endif %}" data-time="0.167">4h</button>
+          <button type="button" class="btn btn-outline-primary{% if days_val == '0.5' %} active{% endif %}" data-time="0.5">12h</button>
+          <button type="button" class="btn btn-outline-primary{% if days_val == '1' %} active{% endif %}" data-time="1">24h</button>
+          <button type="button" class="btn btn-outline-primary{% if days_val == '7' %} active{% endif %}" data-time="7">7d</button>
+          <button type="button" class="btn btn-outline-primary{% if days_val == '0' %} active{% endif %}" data-time="0">All</button>
+        </div>
+      </div>
+      <div class="col-md-6 text-end">
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="checkbox" id="showRelayLabels" checked>
+          <label class="form-check-label" for="showRelayLabels">
+            Show relay labels
+          </label>
+        </div>
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="checkbox" id="showEdgeWeights" checked>
+          <label class="form-check-label" for="showEdgeWeights">
+            Show message counts
+          </label>
+        </div>
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="checkbox" id="showZeroHopSource" checked>
+          <label class="form-check-label" for="showZeroHopSource" title="Show whether zero-hop connections are detected via traceroute (more accurate) or message reception data">
+            Show zero-hop source
+            <i class="fas fa-info-circle text-muted" style="font-size: 0.8em;"></i>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="row mb-3">
+      <div class="col-12">
+        <div class="card">
+          <div class="card-body">
+            <div class="row text-center">
+              <div class="col-md-3">
+                <h6 class="text-primary">{{ stats.total_nodes }}</h6>
+                <small class="text-muted">Total Nodes</small>
+              </div>
+              <div class="col-md-3">
+                <h6 class="text-success">{{ stats.total_edges }}</h6>
+                <small class="text-muted">Relay Paths</small>
+              </div>
+              <div class="col-md-3">
+                <h6 class="text-info">{{ stats.total_messages }}</h6>
+                <small class="text-muted">Messages Relayed</small>
+              </div>
+              <div class="col-md-3">
+                <h6 class="text-warning">{{ "%.1f"|format(stats.avg_hops) }}</h6>
+                <small class="text-muted">Avg Hops</small>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="cy" style="width: 100%; height: 80vh;"></div>
+  
+  <!-- Shift key indicator -->
+  <div id="shiftIndicator" class="position-fixed" style="top: 10px; right: 10px; z-index: 1000; display: none;">
+    <div class="alert alert-info alert-sm mb-0">
+      <i class="bi bi-shift"></i> Shift key active - Edge tooltips enabled
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+  <script src="https://unpkg.com/webcola/WebCola/cola.min.js"></script>
+  <script src="https://unpkg.com/cytoscape-cola/cytoscape-cola.js"></script>
+  <script src="https://unpkg.com/@popperjs/core@2"></script>
+  <script src="https://unpkg.com/tippy.js@6"></script>
+  <script src="https://unpkg.com/cytoscape-popper@2.0.0/cytoscape-popper.js"></script>
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape-panzoom/2.5.3/cytoscape-panzoom.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/tippy.js@6/themes/light-border.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cytoscape-panzoom/2.5.3/cytoscape.js-panzoom.min.css">
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      // Register Cola layout
+      cytoscape.use(cytoscapeCola);
+
+      // Register panzoom extension
+      if (typeof cytoscapePanzoom !== 'undefined') {
+        cytoscape.use(cytoscapePanzoom);
+      }
+
+      // --- Ensure ?days=... is present in URL ---
+      function getQueryParam(name) {
+        const url = new URL(window.location.href);
+        return url.searchParams.get(name);
+      }
+      function setQueryParam(name, value) {
+        const url = new URL(window.location.href);
+        url.searchParams.set(name, value);
+        return url.toString();
+      }
+      
+      // Global tooltip instance management
+      let currentTippy = null;
+      
+      // Helper function to safely destroy current tooltip
+      function destroyCurrentTippy() {
+        if (currentTippy && typeof currentTippy.destroy === 'function') {
+          try {
+            currentTippy.destroy();
+          } catch (e) {
+            console.warn('Error destroying tooltip:', e);
+          }
+          currentTippy = null;
+        }
+      }
+      
+      // Helper function to check if element is valid and visible
+      function isElementValid(element) {
+        return element && 
+               !element.removed() && 
+               element.visible() && 
+               element.renderedStyle() &&
+               element.isNode() ? element.renderedPosition() : true;
+      }
+      
+      // Helper function to format timestamp as 'time ago'
+      function timeAgo(ts) {
+        if (!ts || ts === 'None' || ts === 'null') return 'Never';
+        let date;
+        if (typeof ts === 'number') {
+          date = new Date(ts * 1000);
+        } else if (typeof ts === 'string' && !isNaN(Number(ts))) {
+          date = new Date(Number(ts) * 1000);
+        } else {
+          return 'Never';
+        }
+        if (!date || isNaN(date.getTime())) return 'Never';
+        const now = new Date();
+        let seconds = Math.floor((now - date) / 1000);
+        const future = seconds < 0;
+        seconds = Math.abs(seconds);
+        // Clamp: If more than 5 minutes in the future, treat as 'just now'
+        if (future && seconds > 300) return 'just now';
+        if (seconds < 60) return future ? `in ${seconds} seconds` : `${seconds} seconds ago`;
+        const minutes = Math.floor(seconds / 60);
+        if (minutes < 60) return future ? `in ${minutes} minutes` : `${minutes} minutes ago`;
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return future ? `in ${hours} hours` : `${hours} hours ago`;
+        const days = Math.floor(hours / 24);
+        if (days < 30) return future ? `in ${days} days` : `${days} days ago`;
+        const months = Math.floor(days / 30);
+        if (months < 12) return future ? `in ${months} months` : `${months} months ago`;
+        const years = Math.floor(months / 12);
+        return future ? `in ${years} years` : `${years} years ago`;
+      }
+      
+      // Store the original data
+      var originalData = {{ relay_data|tojson|safe }};
+      var nodes = originalData.nodes;
+      var edges = originalData.edges;
+      var cy;
+
+      // Function to create a placeholder node for missing nodes
+      function createPlaceholderNode(nodeId) {
+        return {
+          data: {
+            id: nodeId,
+            short: nodeId.slice(-4) + ' (Off)',
+            long_name: nodeId + ' (Offline)',
+            hw_model: 'Unknown',
+            last_seen: null,
+            last_relay: null,
+            first_seen: null,
+            message_count: 0,
+            relay_count: 0,
+            is_placeholder: 'true'
+          }
+        };
+      }
+
+      // Function to ensure all nodes referenced in edges exist
+      function ensureAllNodesExist(nodes, edges) {
+        const existingNodeIds = new Set(nodes.map(node => node.id));
+        const missingNodes = [];
+        
+        // Check all edges for missing source or target nodes
+        edges.forEach(edge => {
+          if (!existingNodeIds.has(edge.from_node)) {
+            console.log(`Creating placeholder node for missing source: ${edge.from_node}`);
+            missingNodes.push(createPlaceholderNode(edge.from_node));
+            existingNodeIds.add(edge.from_node);
+          }
+          if (!existingNodeIds.has(edge.to_node)) {
+            console.log(`Creating placeholder node for missing target: ${edge.to_node}`);
+            missingNodes.push(createPlaceholderNode(edge.to_node));
+            existingNodeIds.add(edge.to_node);
+          }
+        });
+        
+        if (missingNodes.length > 0) {
+          console.log(`Created ${missingNodes.length} placeholder nodes for missing nodes`);
+        }
+        
+        return nodes.concat(missingNodes);
+      }
+
+      // Initialize the graph
+      function initializeGraph(data) {
+        // Destroy any existing tooltip
+        destroyCurrentTippy();
+        
+        if (cy) {
+          cy.destroy();
+        }
+
+        // Ensure all nodes referenced in edges exist
+        const allNodes = ensureAllNodesExist(data.nodes, data.edges);
+
+        var elements = {
+          nodes: allNodes.map(node => ({
+            data: Object.assign({
+              id: node.id,
+              short: node.short_name || node.id,
+              long_name: node.long_name || 'Unknown',
+              hw_model: node.hw_model || 'Unknown',
+              last_seen: node.last_seen,
+              last_relay: node.last_relay || node.last_seen,
+              first_seen: node.first_seen,
+              message_count: node.message_count || 0,
+              relay_count: node.relay_count || 0,
+              is_placeholder: node.is_placeholder || 'false'
+            }, node.icon_url ? { image: node.icon_url } : {})
+          })),
+          edges: data.edges.map(edge => ({
+            data: {
+              id: edge.id,
+              source: edge.from_node,
+              target: edge.to_node,
+              relay_suffix: edge.relay_suffix,
+              message_count: edge.message_count,
+              first_seen: edge.first_seen,
+              last_seen: edge.last_seen,
+              weight: edge.message_count,
+              source_type: edge.source_type,
+              forward_hops: edge.forward_hops,
+              return_hops: edge.return_hops
+            }
+          }))
+        };
+
+        // Create the cy instance
+        cy = window.cy = cytoscape({
+          container: document.getElementById('cy'),
+          elements: elements,
+          style: [
+            {
+              selector: 'node[image]',
+              style: {
+                'background-image': 'data(image)',
+                'background-fit': 'contain',
+                'background-color': '#f8f9fa',
+                'width': '40px',
+                'height': '40px',
+                'label': 'data(short)',
+                'text-wrap': 'wrap',
+                'text-max-width': '80px',
+                'text-valign': 'bottom',
+                'text-margin-y': '8px',
+                'font-size': '11px',
+                'font-weight': '600',
+                'text-background-color': '#ffffff',
+                'text-background-opacity': 0.9,
+                'text-background-padding': '3px',
+                'border-width': '2px',
+                'border-color': '#dee2e6',
+                'border-opacity': 0.8
+              }
+            },
+            {
+              selector: "node[id ^= 'relay_']",
+              style: {
+                'background-color': '#ffd966', // bright yellow
+                'border-color': '#ff9900',    // orange border
+                'border-width': 3,
+                'border-style': 'solid',
+                'shape': 'diamond',
+                'width': '40px',
+                'height': '40px',
+                'label': 'data(short)',
+                'text-wrap': 'wrap',
+                'text-max-width': '80px',
+                'text-valign': 'bottom',
+                'text-margin-y': '8px',
+                'font-size': '11px',
+                'font-weight': '600',
+                'text-background-color': '#ffffff',
+                'text-background-opacity': 0.9,
+                'text-background-padding': '3px'
+              }
+            },
+            {
+              selector: "node[long_name *= '(Offline)']",
+              style: {
+                'background-color': '#f8d7da', // light red
+                'border-color': '#dc3545',     // red border
+                'border-width': 2,
+                'border-style': 'dashed',
+                'width': '40px',
+                'height': '40px',
+                'label': 'data(short)',
+                'text-wrap': 'wrap',
+                'text-max-width': '80px',
+                'text-valign': 'bottom',
+                'text-margin-y': '8px',
+                'font-size': '11px',
+                'font-weight': '600',
+                'text-background-color': '#ffffff',
+                'text-background-opacity': 0.9,
+                'text-background-padding': '3px',
+                'opacity': 0.7
+              }
+            },
+            {
+              selector: "node[is_placeholder = 'true']",
+              style: {
+                'background-color': '#f8d7da', // light red
+                'border-color': '#dc3545',     // red border
+                'border-width': 2,
+                'border-style': 'dashed',
+                'width': '40px',
+                'height': '40px',
+                'label': 'data(short)',
+                'text-wrap': 'wrap',
+                'text-max-width': '80px',
+                'text-valign': 'bottom',
+                'text-margin-y': '8px',
+                'font-size': '11px',
+                'font-weight': '600',
+                'text-background-color': '#ffffff',
+                'text-background-opacity': 0.9,
+                'text-background-padding': '3px',
+                'opacity': 0.7
+              }
+            },
+            {
+              selector: 'node',
+              style: {
+                'background-color': '#e9ecef',
+                'width': '40px',
+                'height': '40px',
+                'label': 'data(short)',
+                'text-wrap': 'wrap',
+                'text-max-width': '80px',
+                'text-valign': 'bottom',
+                'text-margin-y': '8px',
+                'font-size': '11px',
+                'font-weight': '600',
+                'text-background-color': '#ffffff',
+                'text-background-opacity': 0.9,
+                'text-background-padding': '3px',
+                'border-width': '2px',
+                'border-color': '#6c757d',
+                'border-opacity': 0.8,
+                'border-style': 'dashed'
+              }
+            },
+            {
+              selector: 'edge',
+              style: {
+                'width': function(ele) {
+                  return Math.min(8, Math.max(1, Math.log(ele.data('weight')) + 1));
+                },
+                'line-color': '#6c757d',
+                'curve-style': 'bezier',
+                'opacity': 0.7,
+                'label': function(ele) {
+                  if (document.getElementById('showEdgeWeights').checked) {
+                    return ele.data('weight');
+                  }
+                  return '';
+                },
+                'text-rotation': 'autorotate',
+                'text-margin-y': '-10px',
+                'font-size': '10px',
+                'font-weight': '600',
+                'text-background-color': '#ffffff',
+                'text-background-opacity': 0.8,
+                'text-background-padding': '2px',
+                'target-arrow-shape': 'triangle',
+                'target-arrow-color': '#6c757d',
+                'arrow-scale': 1.2
+              }
+            },
+            {
+              selector: 'edge[relay_suffix]',
+              style: {
+                'label': function(ele) {
+                  var relay = ele.data('relay_suffix');
+                  var count = ele.data('weight');
+                  var sourceType = ele.data('source_type');
+                  var showRelay = document.getElementById('showRelayLabels').checked;
+                  var showCount = document.getElementById('showEdgeWeights').checked;
+                  var showZeroHopSource = document.getElementById('showZeroHopSource').checked;
+
+                  var label = '';
+                  
+                  if (showRelay && showCount) {
+                    if (relay && relay !== 'null' && relay !== null && relay !== undefined && relay !== '') {
+                      label = `Via ${relay} (${count})`;
+                    } else {
+                      label = `Direct (${count})`;
+                    }
+                  } else if (showRelay) {
+                    if (relay && relay !== 'null' && relay !== null && relay !== undefined && relay !== '') {
+                      label = `Via ${relay}`;
+                    } else {
+                      label = 'Direct';
+                    }
+                  } else if (showCount) {
+                    label = `${count}`;
+                  }
+                  
+                  // Add zero-hop source indicator if enabled and this is a direct connection
+                  if (showZeroHopSource && (!relay || relay === 'null' || relay === null || relay === undefined || relay === '')) {
+                    if (sourceType === 'traceroute_zero_hop') {
+                      label += ' [T]';  // T for Traceroute
+                    } else if (sourceType === 'zero_hop') {
+                      label += ' [M]';  // M for Message reception
+                    }
+                  }
+                  
+                  return label;
+                }
+              }
+            },
+            {
+              selector: '.highlighted',
+              style: {
+                'opacity': 1,
+                'width': function(ele) {
+                  return Math.min(12, Math.max(3, Math.log(ele.data('weight')) + 2));
+                },
+                'line-color': '#ffc107',
+                'z-index': 9999
+              }
+            },
+            {
+              selector: '.faded',
+              style: {
+                'opacity': 0.2
+              }
+            },
+            {
+              selector: '.highlighted-node',
+              style: {
+                'border-width': '3px',
+                'border-color': '#ffc107',
+                'border-opacity': 1,
+                'background-color': '#fff3cd',
+                'z-index': 9999
+              }
+            }
+          ],
+          layout: {
+            name: 'cola',
+            animate: true,
+            refresh: 1,
+            maxSimulationTime: 4000,
+            nodeDimensionsIncludeLabels: true,
+            fit: true,
+            padding: 50,
+            centerGraph: true,
+            avoidOverlap: true,
+            handleDisconnected: true,
+            randomize: true,
+            convergenceThreshold: 0.0001,
+            unconstrIter: 1500,
+            userConstIter: 1500,
+            allConstIter: 1500,
+            edgeLength: function(edge) {
+              // Encourage more vertical spread
+              return Math.max(200, Math.min(400, 300 / Math.log(edge.data('weight') + 1)));
+            },
+            boundingBox: { x1: 0, y1: 0, x2: 2000, y2: 6000 }
+          }
+        });
+
+        // Handle node clicks
+        cy.on('tap', 'node', function(e) {
+          var nodeId = e.target.id();
+          var nodeData = e.target.data();
+          // Don't redirect for relay nodes, offline nodes, or placeholder nodes
+          if (!nodeId.startsWith('relay_') && !nodeData.long_name.includes('(Offline)') && nodeData.is_placeholder !== 'true') {
+            window.location.href = "node_" + nodeId.replace("!", "") + ".html";
+          }
+        });
+
+        // Add panzoom controls if available
+        try {
+          if (cy.panzoom) {
+            cy.panzoom();
+          }
+        } catch (e) {
+          console.warn('Panzoom extension not available:', e);
+        }
+      }
+
+      // Initialize with current data
+      initializeGraph(originalData);
+
+      // Handle time filter changes
+      document.querySelectorAll('[data-time]').forEach(button => {
+        button.addEventListener('click', function() {
+          var days = this.dataset.time;
+          // Only reload if not already selected
+          if (!this.classList.contains('active')) {
+            window.location.href = setQueryParam('days', days);
+          }
+        });
+      });
+
+      // Handle checkbox changes
+      document.getElementById('showRelayLabels').addEventListener('change', function() {
+        cy.style().update();
+      });
+
+      document.getElementById('showEdgeWeights').addEventListener('change', function() {
+        cy.style().update();
+      });
+
+      document.getElementById('showZeroHopSource').addEventListener('change', function() {
+        cy.style().update();
+      });
+
+      // Node tooltip handler
+      cy.on('mouseover', 'node', function(e) {
+        const node = e.target;
+        // Defensive: destroy any existing tooltip
+        destroyCurrentTippy();
+        // Defensive: check node is still valid and visible
+        if (!isElementValid(node)) {
+          console.warn('Node not valid for tooltip:', node.id());
+          return;
+        }
+        // Highlight connected elements
+        const connectedEdges = node.connectedEdges();
+        const connectedNodes = node.neighborhood().nodes();
+        // Add highlighting classes
+        node.addClass('highlighted-node');
+        connectedEdges.addClass('highlighted');
+        connectedNodes.addClass('highlighted-node');
+        // Fade other elements
+        cy.elements().removeClass('faded');
+        cy.elements().difference(connectedEdges.union(connectedNodes).union(node)).addClass('faded');
+        try {
+          const nodeData = node.data();
+          const isVirtualRelay = nodeData.id && nodeData.id.startsWith('relay_');
+          const isOffline = nodeData.long_name && nodeData.long_name.includes('(Offline)');
+          const isPlaceholder = nodeData.is_placeholder === 'true';
+
+          let nodeNameHtml = '';
+          if (isVirtualRelay) {
+            nodeNameHtml = `<strong>${nodeData.long_name || nodeData.id}</strong>`;
+          } else if (isOffline) {
+            nodeNameHtml = `<strong>${nodeData.long_name || nodeData.id}</strong>`;
+          } else {
+            nodeNameHtml = `<strong><a href="node_${nodeData.id}.html">${nodeData.long_name || nodeData.id}</a></strong>`;
+          }
+
+          const content = `
+            <div style="text-align: left; min-width: 200px;">
+              ${nodeNameHtml}<br>
+              <small class="text-muted">${nodeData.id}</small><br><br>
+              ${isOffline || isPlaceholder ? '<strong>Status:</strong> Offline (MQTT disabled)<br>' : ''}
+              <strong>Hardware:</strong> ${nodeData.hw_model_name || nodeData.hw_model || 'Unknown'}<br>
+              <strong>First Relay:</strong> ${timeAgo(nodeData.first_seen)}<br>
+              <strong>Last Relay:</strong> ${timeAgo(nodeData.last_relay || nodeData.last_seen)}<br>
+              <strong>Messages Sent:</strong> ${nodeData.message_count || 0}<br>
+              <strong>Relay Count:</strong> ${nodeData.relay_count || 0}<br>
+              <strong>Connections:</strong> ${node.neighborhood().length - 1}
+            </div>
+          `;
+          // Create dummy element for tippy
+          const dummyDomEle = document.createElement('div');
+          dummyDomEle.innerHTML = content;
+          document.body.appendChild(dummyDomEle);
+          // Get reference for positioning
+          const ref = node.popperRef();
+          // Create tippy instance
+          currentTippy = tippy(dummyDomEle, {
+            getReferenceClientRect: ref.getBoundingClientRect,
+            trigger: 'manual',
+            content: content,
+            arrow: true,
+            placement: 'bottom',
+            hideOnClick: false,
+            interactive: true,
+            allowHTML: true,
+            theme: 'light-border',
+            appendTo: document.body
+          });
+          // Show the tooltip
+          currentTippy.show();
+        } catch (error) {
+          console.error('Error creating node tooltip:', error);
+          destroyCurrentTippy();
+        }
+      });
+      
+      // Edge tooltip handler
+      cy.on('mouseover', 'edge', function(e) {
+        const edge = e.target;
+        
+        // Only show tooltip if Shift key is held down
+        if (!e.originalEvent.shiftKey) {
+          return;
+        }
+        
+        // Defensive: destroy any existing tooltip
+        destroyCurrentTippy();
+        // Defensive: check edge is still valid and visible
+        if (!isElementValid(edge)) {
+          console.warn('Edge not valid for tooltip:', edge.id());
+          return;
+        }
+        // Highlight connected elements
+        const sourceNode = edge.source();
+        const targetNode = edge.target();
+        // Add highlighting classes
+        edge.addClass('highlighted');
+        sourceNode.addClass('highlighted-node');
+        targetNode.addClass('highlighted-node');
+        // Fade other elements
+        cy.elements().removeClass('faded');
+        cy.elements().difference(cy.collection([edge, sourceNode, targetNode])).addClass('faded');
+        try {
+          const edgeData = edge.data();
+          const sourceNode = edge.source();
+          const targetNode = edge.target();
+          let relayInfo = '';
+          if (edgeData.relay_suffix && edgeData.relay_suffix !== 'null' && edgeData.relay_suffix !== null && edgeData.relay_suffix !== undefined && edgeData.relay_suffix !== '') {
+            relayInfo = `<br><strong>Relay:</strong> ${edgeData.relay_suffix}`;
+          } else {
+            relayInfo = '<br><strong>Type:</strong> Direct';
+          }
+          const content = `
+            <div style="text-align: left; min-width: 200px;">
+              <strong>${sourceNode.data('short') || sourceNode.id()} → ${targetNode.data('short') || targetNode.id()}</strong><br>
+              <small class="text-muted">${edgeData.id}</small><br><br>
+              <strong>Messages:</strong> ${edgeData.message_count || 0}${relayInfo}<br>
+              <strong>First Seen:</strong> ${timeAgo(edgeData.first_seen)}<br>
+              <strong>Last Seen:</strong> ${timeAgo(edgeData.last_seen)}${edgeData.source_type === 'traceroute_zero_hop' ? '<br><strong>Source:</strong> Traceroute (more accurate)<br><strong>Forward Hops:</strong> ' + (edgeData.forward_hops || 0) + '<br><strong>Return Hops:</strong> ' + (edgeData.return_hops || 0) : edgeData.source_type === 'zero_hop' ? '<br><strong>Source:</strong> Message reception' : ''}
+            </div>
+          `;
+          // Create dummy element for tippy
+          const dummyDomEle = document.createElement('div');
+          dummyDomEle.innerHTML = content;
+          document.body.appendChild(dummyDomEle);
+          // Get reference for positioning (use edge midpoint)
+          const ref = edge.popperRef();
+          // Create tippy instance
+          currentTippy = tippy(dummyDomEle, {
+            getReferenceClientRect: ref.getBoundingClientRect,
+            trigger: 'manual',
+            content: content,
+            arrow: true,
+            placement: 'top',
+            hideOnClick: false,
+            interactive: true,
+            allowHTML: true,
+            theme: 'light-border',
+            appendTo: document.body
+          });
+          // Show the tooltip
+          currentTippy.show();
+        } catch (error) {
+          console.error('Error creating edge tooltip:', error);
+          destroyCurrentTippy();
+        }
+      });
+      
+      // Cleanup tooltips and highlighting on mouseout for both nodes and edges
+      cy.on('mouseout', 'node, edge', function(e) {
+        destroyCurrentTippy();
+        
+        // Remove highlighting
+        cy.elements().removeClass('highlighted highlighted-node faded');
+      });
+      
+      // Cleanup tooltips when graph changes (filtering, etc.)
+      cy.on('remove', 'node, edge', function(e) {
+        destroyCurrentTippy();
+      });
+      
+      // Cleanup tooltips on pan/zoom
+      cy.on('pan zoom resize', function(e) {
+        destroyCurrentTippy();
+      });
+      
+      // Cleanup tooltips when switching time filters
+      document.querySelectorAll('[data-time]').forEach(button => {
+        button.addEventListener('click', function() {
+          destroyCurrentTippy();
+        });
+      });
+
+      // Show/hide Shift key indicator
+      document.addEventListener('keydown', function(event) {
+        if (event.key === 'Shift') {
+          document.getElementById('shiftIndicator').style.display = 'block';
+        }
+      });
+
+      document.addEventListener('keyup', function(event) {
+        if (event.key === 'Shift') {
+          document.getElementById('shiftIndicator').style.display = 'none';
+        }
+      });
+    });
+  </script>
+{% endblock %} 

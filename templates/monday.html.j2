@@ -3,62 +3,76 @@
 
 {% block title %}{{ this_page }}{% endblock %}
 
+{% block og_title %}#MeshtasticMonday | {{ config['mesh']['name'] }}{% endblock %}
+{% block og_description %}Weekly #MeshtasticMonday event for the {{ config['mesh']['short_name'] }} mesh network. View check-ins, streaks, and community participation.{% endblock %}
+{% block og_image_width %}1200{% endblock %}
+{% block og_image_height %}630{% endblock %}
+{% block twitter_title %}#MeshtasticMonday | {{ config['mesh']['name'] }}{% endblock %}
+{% block twitter_description %}Weekly #MeshtasticMonday event for the {{ config['mesh']['short_name'] }} mesh network. View check-ins, streaks, and community participation.{% endblock %}
+{% block twitter_image_width %}1200{% endblock %}
+{% block twitter_image_height %}630{% endblock %}
+
+{% block head %}
+  {{ super() }}
+{% endblock %}
+
+{# Add a body class for Monday page theming #}
+{% block body_class %}monday-page{% endblock %}
+
 {% block content %}
 <div class="container pt-3">
-<h5>{{ this_page }}</h5>
-<div class="p-2 mb-3" style="background-color: #C3E0DC;">
-  <p><span style="font-weight: bold;">#MeshtasticMonday</span> is a weekly event designed to encourage
-      activity on the Puget Sound Meshtastic mesh network.</p>
-
-  <p>To participate, ensure that "OK to MQTT" is enabled in your device's LoRa configuration, then simply
-      send a message on the default LongFast channel containing the <span
-          style="font-weight: bold;">#MeshtasticMonday</span> hashtag.</p>
-  <div>
-      Example:
-      <div style="padding: 5px; background: #f2f2f2; font-style: italic;">Happy #MeshtasticMonday!</div>
+  <div class="chat-header">
+    <h5>📅 #MeshtasticMonday</h5>
   </div>
-</div>
-<h5>Latest Logs</h5>
-<div class="table-responsive">
-  <table class="table table-striped table-bordered">
-    <thead>
-      <tr>
-        <th scope="col">Channel</th>
-        <th scope="col">Time</th>
-        <th scope="col">From</th>
-        <th scope="col" style="word-wrap: break-word;min-width: 400px;">Message</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% set ns = namespace(day="", first=true) %}
-      {% for message in monday.messages %}
-      {% if ns.day != message.monday %}
-      <tr><th scope="col" colspan="4" style="background:#B5EAD7 !important; text-align: left">{{ message.monday }}</th></tr>
-      {% if ns.day %}
-      {% set ns.first = false %}
-      {% endif %}
-      {% set ns.day = message.monday %}
-      {% endif %}
-      <tr>
-        <td>{{ message.channel }}</td>
-        <td>{{ format_timestamp(message.ts_created, '%H:%M:%S') }}</td>
-        {% if message["from"] in nodes %}
-        <td>
-          <a href="node_{{ message['from'] }}.html">{{ nodes[message["from"]].long_name+" (" + nodes[message["from"]].short_name + ")" }}</a><br>
-          <span style="font-size: 10px">Total Check-Ins: {{ monday.nodes[message['from']]['check_ins'] }}</span>
-          {% if ns.first %}
-            {% if monday.nodes[message['from']]['streak'] %}
-              <br><span style="font-size: 10px">🏃 {{ monday.nodes[message['from']]['streak'] + 1}} week streak</span>
-            {% endif %}
+  <div class="monday-banner mb-4">
+    <p><strong>#MeshtasticMonday</strong> is a weekly event designed to encourage activity on the {{ config["mesh"]["region"] }} Meshtastic network.</p>
+    <p>To participate, ensure that <strong>"OK to MQTT"</strong> is enabled in your device's LoRa configuration, then simply send a message on the default LongFast channel containing the <strong>#MeshtasticMonday</strong> hashtag.</p>
+    <div>
+      Example:
+      <div class="monday-example">Happy #MeshtasticMonday!</div>
+    </div>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-striped table-bordered mb-0 monday-table">
+        <thead>
+          <tr>
+            <th scope="col">Channel</th>
+            <th scope="col">Time</th>
+            <th scope="col" style="min-width: 220px;">From</th>
+            <th scope="col" style="word-wrap: break-word;min-width: 400px;">Message</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set ns = namespace(day="", first=true) %}
+          {% for message in monday.messages %}
+          {% if ns.day != message.monday %}
+          <tr class="monday-date-row"><th scope="col" colspan="4">{{ message.monday }}</th></tr>
+          {% if ns.day %}
+          {% set ns.first = false %}
           {% endif %}
-        </td>
-        {% else %}
-        <td>{{ message["from"] }}</td>
-        {% endif %}
-        <td style="word-break: break-word;">{{ message["text"] }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-</table>
+          {% set ns.day = message.monday %}
+          {% endif %}
+          <tr>
+            <td>{{ message.channel }}</td>
+            <td>{{ format_timestamp(message.ts_created, '%H:%M:%S') }}</td>
+            {% if message["from"] in nodes %}
+            <td>
+              <a href="node_{{ message['from'] }}.html">{{ nodes[message['from']]["long_name"] + " (" + nodes[message['from']]["short_name"] + ")" }}</a><br>
+              <span class="monday-checkins">Total Check-Ins: {{ monday.nodes[message['from']]['check_ins'] }}</span>
+              {% if ns.first %}
+                {% if monday.nodes[message['from']]['streak'] %}
+                  <br><span class="monday-streak">🏃 {{ monday.nodes[message['from']]['streak'] + 1}} week streak</span>
+                {% endif %}
+              {% endif %}
+            </td>
+            {% else %}
+            <td>{{ message["from"] }}</td>
+            {% endif %}
+            <td style="word-break: break-word;">{{ message["text"] }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+  </div>
 </div>
 {% endblock %}

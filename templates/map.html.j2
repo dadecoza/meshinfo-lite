@@ -3,17 +3,117 @@
 
 {% block title %}Map | MeshInfo{% endblock %}
 {% block head %}
-  <script src="https://cdn.jsdelivr.net/npm/openlayers@4.6.5/dist/ol.min.js"></script>
-  <link href="https://cdn.jsdelivr.net/npm/openlayers@4.6.5/dist/ol.min.css" rel="stylesheet">
+  {% include "map_dependencies.html.j2" %}
 {% endblock %}
+
+{% block og_title %}Live Node Map | {{ config['mesh']['name'] }}{% endblock %}
+{% block og_description %}Explore the live map of all nodes in the {{ config['mesh']['short_name'] }} Meshtastic mesh network. See node locations, coverage, and activity in real time.{% endblock %}
+{% block twitter_title %}Live Node Map | {{ config['mesh']['name'] }}{% endblock %}
+{% block twitter_description %}Explore the live map of all nodes in the {{ config['mesh']['short_name'] }} Meshtastic mesh network. See node locations, coverage, and activity in real time.{% endblock %}
 
 {% block content %}
   <div id="map" class="map" style="height: 100vh"></div>
-  <div id="nodeDetail" class="ol-popup">
+  
+  {# Settings Toggle Button #}
+  <button id="settingsToggle" class="settings-toggle">
+    <i class="bi bi-gear-fill"></i>
+  </button>
+
+  {# Settings Panel - Hidden by default #}
+  <div id="settings" class="settings-panel" style="display: none;">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h5 class="m-0">Settings</h5>
+      <small class="text-muted">Changes are only saved in this browser.</small>
+    </div>
+    
+    <div class="mb-3">
+      <label class="form-label">Nodes Max Age</label>
+      <select id="nodesMaxAge" class="form-select form-select-sm">
+        <option value="900">15 minutes</option>
+        <option value="1800">30 minutes</option>
+        <option value="3600">1 hour</option>
+        <option value="10800">3 hours</option>
+        <option value="21600">6 hours</option>
+        <option value="43200">12 hours</option>
+        <option value="86400">24 hours</option>
+        <option value="172800">2 days</option>
+        <option value="259200">3 days</option>
+        <option value="345600">4 days</option>
+        <option value="432000">5 days</option>
+        <option value="518400">6 days</option>
+        <option value="604800">7 days</option>
+        <option value="0">Show All</option>
+      </select>
+      <small class="text-muted d-block">Nodes not updated within this time are hidden. Reload to update map.</small>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label">Nodes Disconnected Age</label>
+      <select id="nodesDisconnectedAge" class="form-select form-select-sm">
+        <option value="900">15 minutes</option>
+        <option value="1800">30 minutes</option>
+        <option value="3600">1 hour</option>
+        <option value="10800">3 hours</option>
+        <option value="21600">6 hours</option>
+        <option value="43200">12 hours</option>
+        <option value="86400">24 hours</option>
+        <option value="172800">2 days</option>
+        <option value="259200">3 days</option>
+        <option value="345600">4 days</option>
+        <option value="432000">5 days</option>
+        <option value="518400">6 days</option>
+        <option value="604800">7 days</option>
+      </select>
+      <small class="text-muted d-block">Nodes that are actively uplinking to MQTT will show as blue icons. Reload to update map.</small>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label">Nodes Offline Age</label>
+      <select id="nodesOfflineAge" class="form-select form-select-sm">
+        <option value="never">Don't show as offline</option>
+        <option value="900">15 minutes</option>
+        <option value="1800">30 minutes</option>
+        <option value="3600">1 hour</option>
+        <option value="10800">3 hours</option>
+        <option value="21600">6 hours</option>
+        <option value="43200">12 hours</option>
+        <option value="86400">24 hours</option>
+        <option value="172800">2 days</option>
+        <option value="259200">3 days</option>
+        <option value="345600">4 days</option>
+        <option value="432000">5 days</option>
+        <option value="518400">6 days</option>
+        <option value="604800">7 days</option>
+      </select>
+      <small class="text-muted d-block">Nodes not updated within this time will show as gray icons. Reload to update map.</small>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label">Channel</label>
+      <select id="channelFilter" class="form-select form-select-sm">
+        <option value="all">All Channels</option>
+        {% for channel in Channel %}
+          <option value="{{ channel.value }}">{{ utils.get_channel_name(channel.value) }} ({{ channel.value }})</option>
+        {% endfor %}
+      </select>
+      <small class="text-muted d-block">Filter nodes by communication channel.</small>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label">Neighbours Max Distance (meters)</label>
+      <input type="number" id="neighboursMaxDistance" class="form-control form-control-sm" value="5000" min="0" step="100">
+      <small class="text-muted d-block">Neighbours further than this are hidden. Reload to update map.</small>
+    </div>
+  </div>
+
+  {# Node Detail Popup #}
+  <div id="nodeDetail" class="ol-popup" style="display: none;">
     <a href="#" id="popup-closer" class="ol-popup-closer"></a>
     <div id="popup-content"></div>
   </div>
-  <div id="details" class="p-2" style="background-color: white;">
+
+  {# Node Info Panel - Hidden by default #}
+  <div id="details" class="node-info-panel" style="display: none;">
     <div>
       <div id="details-title"></div>
       <div id="details-subtitle"></div>
@@ -21,11 +121,11 @@
     <div id="details-content">
     </div>
   </div>
+
   <div id="legend" class="p-2" style="background-color: #ffffff;">
     <div>LEGEND</div>
     <div>
       <div style="background-color: #66FF66; height: 4px; width: 25px; display: inline-flex;"></div> Heard A Neighbor
-      <div</div>
     </div>
     <div>
       <div style="background-color: #6666FF; height: 4px; width: 25px; display: inline-flex;"></div> Heard By Neighbor
@@ -34,92 +134,81 @@
       <div style="background-color: #FF66FF; height: 4px; width: 25px; display: inline-flex;"></div> Both Heard Each Other
     </div>
   </div>
+
   <script type="module">
-    async function reverseGeocode(lon, lat) {
-      return fetch('https://nominatim.openstreetmap.org/reverse?format=json&lon=' + lon + '&lat=' + lat)
-        .then(function(response) {
-          return response.json();
-        }).then(function(json) {
-          console.log(json);
-          return json;
-        });
+    import Map from 'ol/Map.js';
+    import View from 'ol/View.js';
+    import TileLayer from 'ol/layer/Tile.js';
+    import OSM from 'ol/source/OSM.js';
+    import VectorLayer from 'ol/layer/Vector.js';
+    import VectorSource from 'ol/source/Vector.js';
+    import Feature from 'ol/Feature.js';
+    import Point from 'ol/geom/Point.js';
+    import LineString from 'ol/geom/LineString.js';
+    import {fromLonLat} from 'ol/proj.js';
+    import Style from 'ol/style/Style.js';
+    import Circle from 'ol/style/Circle.js';
+    import Fill from 'ol/style/Fill.js';
+    import Stroke from 'ol/style/Stroke.js';
+    import Overlay from 'ol/Overlay.js';
+    import Select from 'ol/interaction/Select.js';
+    import {click} from 'ol/events/condition.js';
+
+    // Add settings toggle functionality
+    const settingsToggle = document.getElementById('settingsToggle');
+    const settingsPanel = document.getElementById('settings');
+    const nodeInfoPanel = document.getElementById('details');
+
+    // Initialize settings panel state from localStorage
+    let settingsPanelVisible = localStorage.getItem('settingsPanelVisible') === 'true';
+    settingsPanel.style.display = settingsPanelVisible ? 'block' : 'none';
+
+    settingsToggle.addEventListener('click', () => {
+      settingsPanelVisible = !settingsPanelVisible;
+      settingsPanel.style.display = settingsPanelVisible ? 'block' : 'none';
+      localStorage.setItem('settingsPanelVisible', settingsPanelVisible);
+    });
+
+    // Hide node info panel by default
+    nodeInfoPanel.style.display = 'none';
+
+    // Add channel color utility function
+    const channelColors = {
+      8: '#4CAF50',    // Green for LongFast
+      24: '#9C27B0',   // Purple for MediumSlow
+      31: '#2196F3',   // Blue for MediumFast
+      112: '#FF9800',  // Orange for ShortFast
+    };
+
+    function getChannelColor(channelId) {
+      if (channelId in channelColors) {
+        return channelColors[channelId];
+      }
+      
+      // For unknown channels, generate a consistent color based on the channel ID
+      const hash = channelId.toString().split('').reduce((acc, char) => {
+        return char.charCodeAt(0) + ((acc << 5) - acc);
+      }, 0);
+      
+      const color = `hsl(${Math.abs(hash) % 360}, 70%, 50%)`;
+      return color;
     }
 
-    const default_position = {
-      latitude: 38.5816,
-      longitude: -121.4944,
+    // Add settings management code at the top
+    const settings = {
+      nodesMaxAge: localStorage.getItem('nodesMaxAge') || '0', // Default to Show All
+      nodesDisconnectedAge: localStorage.getItem('nodesDisconnectedAge') || '10800', // Default to 3 hours (10800 seconds)
+      nodesOfflineAge: localStorage.getItem('nodesOfflineAge') || '10800', // Default to 3 hours (10800 seconds)
+      neighboursMaxDistance: localStorage.getItem('neighboursMaxDistance') || '5000',
+      channelFilter: localStorage.getItem('channelFilter') || 'all'
     };
-    var server_position = null;
-    {% if 'latitude' in config['mesh'] and 'longitude'in config['mesh'] %}
-      server_position = {
-        latitude: {{ config['mesh']['latitude'] }},
-        longitude: {{ config['mesh']['longitude'] }}
-      };
-    {% else %}
-      server_position = default_position;
-    {% endif %}
 
-    var server_zoom = null;
-    {% if 'zoom' in config['mesh'] %}
-      server_zoom = {{ config['mesh']['zoom'] }};
-    {% else %}
-      server_zoom = 9.5;
-    {% endif %}
-
-    const map = new ol.Map({
-      layers: [
-        new ol.layer.Tile({
-          source: new ol.source.OSM(),
-        }),
-      ],
-      target: 'map',
-      view: new ol.View({
-        center: ol.proj.fromLonLat([server_position.longitude, server_position.latitude]),
-        zoom: server_zoom,
-      }),
-    });
-
-    var defaultStyle = new ol.style.Style({
-      image: new ol.style.Circle({
-        radius: 6,
-        fill: new ol.style.Fill({
-          color: 'rgba(0, 0, 240, 1)'
-        }),
-        stroke: new ol.style.Stroke({
-          color: 'white',
-          width: 2
-        })
-      }),
-      zIndex: 0
-    });
-
-    var offlineStyle = new ol.style.Style({
-      image: new ol.style.Circle({
-        radius: 6,
-        fill: new ol.style.Fill({
-          color: 'rgba(0, 0, 0, 0.50)'
-        }),
-        stroke: new ol.style.Stroke({
-          color: 'white',
-          width: 2
-        })
-      }),
-      zIndex: 1
-    });
-
-    var onlineStyle = new ol.style.Style({
-      image: new ol.style.Circle({
-        radius: 6,
-        fill: new ol.style.Fill({
-          color: 'rgba(50, 240, 50, 1)'
-        }),
-        stroke: new ol.style.Stroke({
-          color: 'white',
-          width: 2
-        })
-      }),
-      zIndex: 2
-    });
+    // Initialize settings UI
+    document.getElementById('nodesMaxAge').value = settings.nodesMaxAge;
+    document.getElementById('nodesDisconnectedAge').value = settings.nodesDisconnectedAge;
+    document.getElementById('nodesOfflineAge').value = settings.nodesOfflineAge;
+    document.getElementById('neighboursMaxDistance').value = settings.neighboursMaxDistance;
+    document.getElementById('channelFilter').value = settings.channelFilter;
 
     // Add helper functions for time formatting
     function formatTimestamp(timestamp) {
@@ -142,32 +231,115 @@
       ) * 111.32;
     }
 
+    // Initialize map
+    const default_position = {
+      latitude: 38.5816,
+      longitude: -121.4944,
+    };
+    var server_position = null;
+    {% if 'latitude' in config['mesh'] and 'longitude'in config['mesh'] %}
+      server_position = {
+        latitude: {{ config['mesh']['latitude'] }},
+        longitude: {{ config['mesh']['longitude'] }}
+      };
+    {% else %}
+      server_position = default_position;
+    {% endif %}
+
+    var server_zoom = null;
+    {% if 'zoom' in config['mesh'] %}
+      server_zoom = {{ config['mesh']['zoom'] }};
+    {% else %}
+      server_zoom = 9.5;
+    {% endif %}
+
+    const map = new Map({
+      target: 'map',
+      layers: [
+        new TileLayer({
+          source: new OSM()
+        })
+      ],
+      view: new View({
+        center: fromLonLat([server_position.longitude, server_position.latitude]),
+        zoom: server_zoom
+      })
+    });
+
+    const defaultStyle = new Style({
+      image: new Circle({
+        radius: 6,
+        fill: new Fill({
+          color: 'rgba(0, 0, 240, 1)'
+        }),
+        stroke: new Stroke({
+          color: 'white',
+          width: 2
+        })
+      }),
+      zIndex: 0
+    });
+
+    const offlineStyle = new Style({
+      image: new Circle({
+        radius: 6,
+        fill: new Fill({
+          color: 'rgba(0, 0, 0, 0.50)'
+        }),
+        stroke: new Stroke({
+          color: 'white',
+          width: 2
+        })
+      }),
+      zIndex: 1
+    });
+
+    const onlineStyle = new Style({
+      image: new Circle({
+        radius: 6,
+        fill: new Fill({
+          color: 'rgba(50, 240, 50, 1)'
+        }),
+        stroke: new Stroke({
+          color: 'white',
+          width: 2
+        })
+      }),
+      zIndex: 2
+    });
+
     var nodes = {};
     var neighborLayers = [];
     {% for id, node in nodes.items() %}
-      {% if node.position is defined and node.position and node.position.longitude_i and node.position.latitude_i %}
       nodes['{{ id }}'] = {
         id: '{{ id }}',
-        short_name: '{{ node.short_name }}',
-        long_name: '{{ node.long_name }}',
+        short_name: {{ node.short_name | tojson }},
+        long_name: {{ node.long_name | tojson }},
         last_seen: '{{ time_ago(node.ts_seen) }}',
-        position: [{{ node.position.longitude_i / 10000000 }}, {{ node.position.latitude_i / 10000000 }}],
+        ts_seen: {{ node.ts_seen }},
+        ts_uplink: {% if node.ts_uplink is defined and node.ts_uplink is not none %}{{ node.ts_uplink }}{% else %}null{% endif %},
+        position: [{% if node.position and node.position.longitude_i and node.position.latitude_i %}{{ node.position.longitude_i / 10000000 }}, {{ node.position.latitude_i / 10000000 }}{% else %}null, null{% endif %}],
         online: {% if node.active %}true{% else %}false{% endif %},
+        channel: {% if node.channel is not none %}{{ node.channel }}{% else %}null{% endif %},
+        channel_name: {% if node.channel is not none %}'{{ utils.get_channel_name(node.channel) }}'{% else %}'Unknown'{% endif %},
+        has_default_channel: {% if node.has_default_channel is not none %}{{ node.has_default_channel | tojson }}{% else %}null{% endif %},
+        num_online_local_nodes: {% if node.num_online_local_nodes is not none %}{{ node.num_online_local_nodes }}{% else %}null{% endif %},
+        region: {% if node.region is not none %}{{ node.region }}{% else %}null{% endif %},
+        modem_preset: {% if node.modem_preset is not none %}{{ node.modem_preset }}{% else %}null{% endif %},
         zero_hop_data: {{ zero_hop_data.get(id, {'heard': [], 'heard_by': []}) | tojson | safe }}
       };
       {% if node.neighbors %}
-      nodes['{{ id }}'].neighbors = [
-        {% for neighbor in node.neighbors %}
-          {
-            id: '{{ utils.convert_node_id_from_int_to_hex(neighbor.neighbor_id) }}',
-            snr: '{{ neighbor.snr }}',
-            distance: '{{ neighbor.distance }}',
-          },
-        {% endfor %}
-      ];
+        nodes['{{ id }}'].neighbors = [
+          {% for neighbor in node.neighbors %}
+            {
+              id: '{{ utils.convert_node_id_from_int_to_hex(neighbor.neighbor_id) }}',
+              snr: '{{ neighbor.snr }}',
+              distance: '{{ neighbor.distance }}',
+            },
+          {% endfor %}
+        ];
       {% else %}
-      nodes['{{ id }}'].neighbors = [];
-      {% endif %}
+        nodes['{{ id }}'].neighbors = [];
       {% endif %}
     {% endfor %}
 
@@ -176,7 +348,17 @@
     const positionMap = new Map();
     
     Object.values(nodes).forEach(function(node) {
-      if (node.position) {
+      // Only add features for nodes with valid lat/lon
+      if (
+        node.position &&
+        Array.isArray(node.position) &&
+        node.position[0] !== null &&
+        node.position[1] !== null &&
+        !isNaN(node.position[0]) &&
+        !isNaN(node.position[1]) &&
+        node.position[0] >= -180 && node.position[0] <= 180 &&
+        node.position[1] >= -90 && node.position[1] <= 90
+      ) {
         const posKey = node.position.join(',');
         const offset = positionMap.get(posKey) || 0;
         
@@ -188,29 +370,679 @@
           offsetCoords[1] += 0.0001;
         }
         
-        var feature = new ol.Feature({
-          geometry: new ol.geom.Point(ol.proj.fromLonLat(offsetCoords)),
+        const feature = new Feature({
+          geometry: new Point(fromLonLat(offsetCoords)),
           node: node,
         });
-        if (node.online) {
-          feature.setStyle(onlineStyle);
-        } else {
-          feature.setStyle(offlineStyle);
+
+        // Apply initial style based on filters
+        const now = Math.floor(Date.now() / 1000);
+        let visible = true;
+        let style = null;
+
+        // Apply channel filter
+        if (settings.channelFilter !== 'all') {
+          const channelId = parseInt(settings.channelFilter);
+          if (node.channel === null || node.channel !== channelId) {
+            visible = false;
+          }
         }
+
+        // Apply node max age filter
+        if (visible && settings.nodesMaxAge !== '0') {
+          const maxAge = parseInt(settings.nodesMaxAge);
+          if (now - node.ts_seen > maxAge) {
+            visible = false;
+          }
+        }
+
+        if (visible) {
+          // Check MQTT uplink status first
+          if (node.ts_uplink !== null) {
+            const disconnectedAge = parseInt(settings.nodesDisconnectedAge);
+            const lastUplink = node.ts_uplink;
+            if (now - lastUplink <= disconnectedAge) {
+              // Node has active MQTT uplink - show as blue
+              style = new Style({
+                image: new Circle({
+                  radius: 6,
+                  fill: new Fill({
+                    color: 'rgba(33, 150, 243, 1)'
+                  }),
+                  stroke: new Stroke({
+                    color: 'white',
+                    width: 2
+                  })
+                })
+              });
+            } else {
+              // MQTT uplink is old, fall back to regular node status coloring
+              const offlineAge = parseInt(settings.nodesOfflineAge);
+              if (settings.nodesOfflineAge === 'never' || now - node.ts_seen <= offlineAge) {
+                style = onlineStyle;
+              } else {
+                style = offlineStyle;
+              }
+            }
+          } else {
+            // No MQTT uplink info - check offline age
+            const offlineAge = parseInt(settings.nodesOfflineAge);
+            if (settings.nodesOfflineAge === 'never' || now - node.ts_seen <= offlineAge) {
+              style = onlineStyle;
+            } else {
+              style = offlineStyle;
+            }
+          }
+
+          // Apply channel-specific styling if needed
+          if (settings.channelFilter !== 'all') {
+            const channelId = parseInt(settings.channelFilter);
+            if (node.channel === channelId) {
+              const hasActiveUplink = node.ts_uplink !== null && (now - node.ts_uplink) <= parseInt(settings.nodesDisconnectedAge);
+              style = new Style({
+                image: new Circle({
+                  radius: 6,
+                  fill: new Fill({
+                    color: getChannelColor(channelId)
+                  }),
+                  stroke: new Stroke({
+                    color: hasActiveUplink ? 'rgba(33, 150, 243, 1)' : 'white',
+                    width: hasActiveUplink ? 3 : 2
+                  })
+                })
+              });
+            }
+          }
+        }
+
+        feature.setStyle(visible ? style : null);
         features.push(feature);
-        
-        // Increment the count for this position
         positionMap.set(posKey, offset + 1);
       }
     });
 
-    const layer = new ol.layer.Vector({
-      style: defaultStyle,
-      source: new ol.source.Vector({
+    const layer = new VectorLayer({
+      source: new VectorSource({
         features: features
-      })
+      }),
+      style: function(feature) {
+        return feature.getStyle() || null;
+      },
+      zIndex: 2
     });
     map.addLayer(layer);
+
+    // Add event listeners for settings changes
+    document.getElementById('nodesMaxAge').addEventListener('change', function(e) {
+      settings.nodesMaxAge = e.target.value;
+      localStorage.setItem('nodesMaxAge', e.target.value);
+      applyFilters();
+    });
+
+    document.getElementById('nodesDisconnectedAge').addEventListener('change', function(e) {
+      settings.nodesDisconnectedAge = e.target.value;
+      localStorage.setItem('nodesDisconnectedAge', e.target.value);
+      applyFilters();
+    });
+
+    document.getElementById('nodesOfflineAge').addEventListener('change', function(e) {
+      settings.nodesOfflineAge = e.target.value;
+      localStorage.setItem('nodesOfflineAge', e.target.value);
+      applyFilters();
+    });
+
+    document.getElementById('neighboursMaxDistance').addEventListener('change', function(e) {
+      settings.neighboursMaxDistance = e.target.value;
+      localStorage.setItem('neighboursMaxDistance', e.target.value);
+      applyFilters();
+    });
+
+    document.getElementById('channelFilter').addEventListener('change', function(e) {
+      settings.channelFilter = e.target.value;
+      localStorage.setItem('channelFilter', e.target.value);
+      applyFilters();
+    });
+
+    // Define applyFilters function after layer is created
+    function applyFilters() {
+      const now = Math.floor(Date.now() / 1000);
+      const features = layer.getSource().getFeatures();
+      
+      features.forEach(function(feature) {
+        const node = feature.getProperties().node;
+        let visible = true;
+        let style = null;  // Start with no style
+
+                // Apply channel filter FIRST
+        if (settings.channelFilter !== 'all') {
+          const channelId = parseInt(settings.channelFilter);
+          if (node.channel === null || node.channel !== channelId) {
+            visible = false;
+          }
+        }
+
+        // Apply node max age filter
+        if (visible && settings.nodesMaxAge !== '0') {
+          const maxAge = parseInt(settings.nodesMaxAge);
+          if (now - node.ts_seen > maxAge) {
+            visible = false;
+          }
+        }
+
+        // Only proceed with style calculations if the node should be visible
+        if (visible) {
+          // Check MQTT uplink status first
+          if (node.ts_uplink !== null) {
+            const disconnectedAge = parseInt(settings.nodesDisconnectedAge);
+            const lastUplink = node.ts_uplink;
+            if (now - lastUplink <= disconnectedAge) {
+              // Node has active MQTT uplink - show as blue
+              style = new Style({
+                image: new Circle({
+                  radius: 6,
+                  fill: new Fill({
+                    color: 'rgba(33, 150, 243, 1)' // Bright blue for active MQTT
+                  }),
+                  stroke: new Stroke({
+                    color: 'white',
+                    width: 2
+                  })
+                })
+              });
+            } else {
+              // MQTT uplink is old, fall back to regular node status coloring
+              const offlineAge = parseInt(settings.nodesOfflineAge);
+              if (settings.nodesOfflineAge === 'never' || now - node.ts_seen <= offlineAge) {
+                // Node has been seen within the offline age threshold - show as active
+                style = onlineStyle;
+              } else {
+                // Node hasn't been seen within the offline age threshold - show as offline
+                style = offlineStyle;
+              }
+            }
+          } else {
+            // No MQTT uplink info - check offline age
+            const offlineAge = parseInt(settings.nodesOfflineAge);
+            if (settings.nodesOfflineAge === 'never' || now - node.ts_seen <= offlineAge) {
+              // Node has been seen within the offline age threshold - show as active
+              style = onlineStyle;
+            } else {
+              // Node hasn't been seen within the offline age threshold - show as offline
+              style = offlineStyle;
+            }
+          }
+
+          // Apply channel-specific styling if needed (for nodes that passed the channel filter)
+          if (settings.channelFilter !== 'all') {
+            const channelId = parseInt(settings.channelFilter);
+            // Only apply channel-specific styling if node matches the selected channel
+            if (node.channel === channelId) {
+              const hasActiveUplink = node.ts_uplink !== null && (now - node.ts_uplink) <= parseInt(settings.nodesDisconnectedAge);
+              style = new Style({
+                image: new Circle({
+                  radius: 6,
+                  fill: new Fill({
+                    color: getChannelColor(channelId)
+                  }),
+                  stroke: new Stroke({
+                    color: hasActiveUplink ? 'rgba(33, 150, 243, 1)' : 'white',
+                    width: hasActiveUplink ? 3 : 2
+                  })
+                })
+              });
+            } else {
+              visible = false; // Hide nodes that don't match the selected channel
+            }
+          }
+        }
+
+        // Only set a style if the node should be visible
+        feature.setStyle(visible ? style : null);
+      });
+
+      // Apply neighbor distance filter
+      neighborLayers.forEach(function(layer) {
+        const maxDistance = parseInt(settings.neighboursMaxDistance);
+        const features = layer.getSource().getFeatures();
+        
+        features.forEach(function(feature) {
+          const geometry = feature.getGeometry();
+          const coordinates = geometry.getCoordinates();
+          const distance = calculateDistance(
+            coordinates[0],
+            coordinates[1]
+          ) * 1000; // Convert km to meters
+          
+          feature.setStyle(distance <= maxDistance ? feature.get('originalStyle') : null);
+        });
+      });
+    }
+
+    // Initial filter application
+    applyFilters();
+
+    // Handle node selection from URL parameter
+    function getUrlParameter(name) {
+      const urlParams = new URLSearchParams(window.location.search);
+      return urlParams.get(name);
+    }
+
+    // Auto-select node if specified in URL
+    const selectedNodeId = getUrlParameter('node');
+    if (selectedNodeId) {
+      // Wait for the map to be fully loaded
+      setTimeout(() => {
+        const features = layer.getSource().getFeatures();
+        const targetFeature = features.find(f => {
+          const node = f.getProperties().node;
+          return node && node.id === selectedNodeId;
+        });
+        
+        if (targetFeature) {
+          const node = targetFeature.getProperties().node;
+          
+          // Center the map on the node first
+          map.getView().animate({
+            center: targetFeature.getGeometry().getCoordinates(),
+            zoom: 15,
+            duration: 1000
+          });
+          
+          // Then trigger the node selection logic directly
+          setTimeout(() => {
+            // Clear existing neighbor layers
+            neighborLayers.forEach(function(layer) {
+              map.removeLayer(layer);
+            });
+            neighborLayers = [];
+
+            // Hide node info panel by default
+            $('#details').hide();
+            nodeTitle.innerHTML = '';
+            nodeSubtitle.innerHTML = '';
+            nodeContent.innerHTML = '';
+
+            // Hide settings panel when clicking on the map
+            settingsPanelVisible = false;
+            settingsPanel.style.display = 'none';
+            localStorage.setItem('settingsPanelVisible', settingsPanelVisible);
+
+            // Get all connected node IDs
+            const connectedNodeIds = new Set();
+            if (node.neighbors) {
+              node.neighbors.forEach(neighbor => connectedNodeIds.add(neighbor.id));
+            }
+            if (node.zero_hop_data) {
+              node.zero_hop_data.heard.forEach(heard => connectedNodeIds.add(heard.node_id));
+              node.zero_hop_data.heard_by.forEach(heard => connectedNodeIds.add(heard.node_id));
+            }
+
+            // Update z-index of all nodes
+            const features = layer.getSource().getFeatures();
+            features.forEach(function(f) {
+              const n = f.getProperties().node;
+              const currentStyle = f.getStyle();
+              if (!currentStyle) return; // Skip if no style
+
+              const currentImage = currentStyle.getImage();
+              if (!currentImage) return; // Skip if no image
+
+              const currentFill = currentImage.getFill();
+              const currentStroke = currentImage.getStroke();
+              
+              if (n.id === node.id || connectedNodeIds.has(n.id)) {
+                // Clicked node and connected nodes get highest z-index
+                f.setStyle(new Style({
+                  image: new Circle({
+                    radius: 6,
+                    fill: new Fill({
+                      color: currentFill ? currentFill.getColor() : 'rgba(0, 0, 240, 1)'
+                    }),
+                    stroke: new Stroke({
+                      color: currentStroke ? currentStroke.getColor() : 'white',
+                      width: currentStroke ? currentStroke.getWidth() : 2
+                    })
+                  }),
+                  zIndex: 10  // Higher z-index for connected nodes
+                }));
+              } else {
+                // Other nodes get lower z-index
+                f.setStyle(new Style({
+                  image: new Circle({
+                    radius: 6,
+                    fill: new Fill({
+                      color: currentFill ? currentFill.getColor() : 'rgba(0, 0, 240, 1)'
+                    }),
+                    stroke: new Stroke({
+                      color: currentStroke ? currentStroke.getColor() : 'white',
+                      width: currentStroke ? currentStroke.getWidth() : 2
+                    })
+                  }),
+                  zIndex: 1  // Lower z-index for unconnected nodes
+                }));
+              }
+            });
+
+            // Show and populate the node info panel
+            $('#details').show();
+            
+            // Build the basic info panel
+            var panel = '<div style="position: relative; margin-bottom: 12px">'
+              + '<span title="' + (node.online ? 'Online' : 'Offline') + '" style="position: absolute; top: 0; right: 0; font-size: 1.5em">' 
+              + (node.online ? '🟢' : '⚫') + '</span>'
+              + '<div class="fw-bold"><a href="node_' + node.id + '.html" target="_blank">' + node.long_name + '</a></div>'
+              + '<div class="text-muted small">' + node.id + ' <span style="font-weight: bold; color: #333;">(' + node.short_name + ')</span></div>'
+              + '</div>'
+              + '<div class="small">'
+              + '<div class="mb-2"><i class="text-muted">Last seen:</i> ' + node.last_seen + '</div>'
+              + '<div class="mb-2"><i class="text-muted">MQTT Status:</i> ' 
+              + (node.ts_uplink ? 'Connected ' + timeAgo(node.ts_uplink) : 'Not Connected')
+              + '</div>'
+              + '<div class="mb-2"><i class="text-muted">Position:</i> ' + node.position + '</div>'
+              + '<div class="mb-2"><i class="text-muted">Location:</i> ' + 'Loading...' + '</div>'
+              + '<div class="mb-2"><i class="text-muted">Channel:</i> ' 
+              + node.channel_name
+              + '</div>';
+            
+            // Add mapreport-specific fields if available
+            if (node.has_default_channel !== null && node.has_default_channel !== undefined) {
+              panel += '<div class="mb-2"><i class="text-muted">Default Channel:</i> ' 
+                + (node.has_default_channel ? '<span style="color: green;">Yes</span>' : '<span style="color: orange;">No</span>')
+                + '</div>';
+            }
+            
+            if (node.num_online_local_nodes !== null && node.num_online_local_nodes !== undefined) {
+              panel += '<div class="mb-2"><i class="text-muted">Local Nodes:</i> ' 
+                + node.num_online_local_nodes + ' nodes</div>';
+            }
+            
+            if (node.region !== null && node.region !== undefined) {
+              var regionNames = {
+                1: 'US (915 MHz)',
+                2: 'EU (433 MHz)', 
+                3: 'CN (470 MHz)',
+                4: 'JP (923 MHz)',
+                5: 'ANZ (915 MHz)',
+                6: 'KR (920 MHz)',
+                7: 'TW (920 MHz)',
+                8: 'RU (868 MHz)',
+                9: 'IN (865 MHz)',
+                10: 'NZ (915 MHz)',
+                11: 'TH (920 MHz)',
+                12: 'LORA_24 (2.4 GHz)'
+              };
+              panel += '<div class="mb-2"><i class="text-muted">LoRa Region:</i> ' 
+                + (regionNames[node.region] || 'Unknown (' + node.region + ')') + '</div>';
+            }
+            
+            if (node.modem_preset !== null && node.modem_preset !== undefined) {
+              var modemPresetNames = {
+                0: 'Long Fast',
+                1: 'Long Slow',
+                2: 'Very Long Slow',
+                3: 'Medium Slow',
+                4: 'Medium Fast',
+                5: 'Short Slow',
+                6: 'Short Fast',
+                7: 'Long Moderate',
+                8: 'Short Turbo'
+              };
+              panel += '<div class="mb-2"><i class="text-muted">Modem Preset:</i> ' 
+                + (modemPresetNames[node.modem_preset] || 'Unknown (' + node.modem_preset + ')') + '</div>';
+            }
+            
+            panel += '</div>';
+
+            // Add the heard section
+            panel += '<b>Heard (zero hop)</b><br/>';
+            panel += "<table class='table table-striped table-bordered table-sm'>";
+            panel += "<thead><tr><th>Node</th><th>Signal</th><th>Distance</th><th>Source</th></tr></thead>";
+            panel += "<tbody>";
+
+            // Add neighbor data
+            if (node.neighbors) {
+              node.neighbors.forEach(function(neighbor) {
+                var nnode = nodes[neighbor.id];
+                var distance = nnode ? calculateDistance(node.position, nnode.position) : null;
+                panel += '<tr>';
+                panel += '<td>' + (nnode ? '<a href="node_' + neighbor.id + '.html">' + nnode.short_name + '</a>' : '<span class="text-secondary">UNK</span>') + '</td>';
+                panel += '<td>SNR: ' + neighbor.snr + '</td>';
+                panel += '<td>' + (distance ? distance.toFixed(2) + ' km' : '') + '</td>';
+                panel += '<td><span title="Neighbor data">N</span></td>';
+                panel += '</tr>';
+              });
+            }
+
+            // Add zero-hop message data
+            if (node.zero_hop_data && node.zero_hop_data.heard) {
+              node.zero_hop_data.heard.forEach(function(heard) {
+                var nnode = nodes[heard.node_id];
+                var distance = nnode ? calculateDistance(node.position, nnode.position) : null;
+                panel += '<tr>';
+                panel += '<td>' + (nnode ? '<a href="node_' + heard.node_id + '.html">' + nnode.short_name + '</a>' : '<span class="text-secondary">UNK</span>') + '</td>';
+                panel += '<td>SNR: ' + heard.best_snr + ' max / ' + parseFloat(heard.avg_snr).toFixed(1) + ' avg</td>';
+                panel += '<td>' + (distance ? distance.toFixed(2) + ' km' : '') + '</td>';
+                panel += '<td><span title="Message data">M</span> (' + heard.count + ') <small title="Last heard ' + formatTimestamp(heard.last_rx_time) + '">' + timeAgo(heard.last_rx_time) + '</small></td>';
+                panel += '</tr>';
+              });
+            }
+            panel += "</tbody></table>";
+
+            // Add the heard by section
+            panel += '<br/><b>Heard By (zero hop)</b><br/>';
+            panel += "<table class='table table-striped table-bordered table-sm'>";
+            panel += "<thead><tr><th>Node</th><th>Signal</th><th>Distance</th><th>Source</th></tr></thead>";
+            panel += "<tbody>";
+
+            // Add nodes that heard this node (from neighbor data)
+            Object.values(nodes).forEach(function(nnode) {
+              if (nnode.neighbors && nnode.neighbors.some(n => n.id === node.id)) {
+                var neighbor = nnode.neighbors.find(n => n.id === node.id);
+                var distance = calculateDistance(node.position, nnode.position);
+                panel += '<tr>';
+                panel += '<td><a href="node_' + nnode.id + '.html">' + nnode.short_name + '</a></td>';
+                panel += '<td>SNR: ' + neighbor.snr + '</td>';
+                panel += '<td>' + (distance ? distance.toFixed(2) + ' km' : '') + '</td>';
+                panel += '<td><span title="Neighbor data">N</span></td>';
+                panel += '</tr>';
+              }
+            });
+
+            // Add zero-hop heard-by data
+            if (node.zero_hop_data && node.zero_hop_data.heard_by) {
+              node.zero_hop_data.heard_by.forEach(function(heard) {
+                var nnode = nodes[heard.node_id];
+                var distance = nnode ? calculateDistance(node.position, nnode.position) : null;
+                panel += '<tr>';
+                panel += '<td>' + (nnode ? '<a href="node_' + heard.node_id + '.html">' + nnode.short_name + '</a>' : '<span class="text-secondary">UNK</span>') + '</td>';
+                panel += '<td>SNR: ' + heard.best_snr + ' max / ' + parseFloat(heard.avg_snr).toFixed(1) + ' avg</td>';
+                panel += '<td>' + (distance ? distance.toFixed(2) + ' km' : '') + '</td>';
+                panel += '<td><span title="Message data">M</span> (' + heard.count + ') <small title="Last heard ' + formatTimestamp(heard.last_rx_time) + '">' + timeAgo(heard.last_rx_time) + '</small></td>';
+                panel += '</tr>';
+              });
+            }
+            panel += "</tbody></table>";
+
+            // Add elsewhere section
+            panel += '<br/><b>Elsewhere</b><br/>';
+            var node_id = parseInt(node.id, 16);
+            panel += '<a href="https://meshtastic.davekeogh.com/?node_id=' + node_id + '" target="_blank">PugetMesh Map</a><br/>';
+            panel += '<a href="https://meshmap.net/#' + node_id + '" target="_blank">MeshMap</a><br/>';
+
+            // Draw connection lines
+            // Draw neighbor connections
+            if (node.neighbors) {
+              node.neighbors.forEach(function(neighbor) {
+                var nnode = nodes[neighbor.id];
+                if (
+                  !nnode ||
+                  !nnode.position ||
+                  !Array.isArray(nnode.position) ||
+                  nnode.position[0] === null ||
+                  nnode.position[1] === null ||
+                  isNaN(nnode.position[0]) ||
+                  isNaN(nnode.position[1]) ||
+                  nnode.position[0] < -180 || nnode.position[0] > 180 ||
+                  nnode.position[1] < -90 || nnode.position[1] > 90 ||
+                  !node.position ||
+                  !Array.isArray(node.position) ||
+                  node.position[0] === null ||
+                  node.position[1] === null ||
+                  isNaN(node.position[0]) ||
+                  isNaN(node.position[1]) ||
+                  node.position[0] < -180 || node.position[0] > 180 ||
+                  node.position[1] < -90 || node.position[1] > 90
+                ) return;
+                
+                const featureLine = new Feature({
+                  geometry: new LineString([
+                    fromLonLat(node.position),
+                    fromLonLat(nnode.position)
+                  ])
+                });
+
+                const vectorLine = new VectorSource({});
+                vectorLine.addFeature(featureLine);
+
+                const lineStyle = new Style({
+                  fill: new Fill({ color: '#66FF66', weight: 8 }),
+                  stroke: new Stroke({ color: '#66FF66', width: 4 }),
+                  zIndex: 5  // Middle z-index for lines
+                });
+
+                const vectorLineLayer = new VectorLayer({
+                  source: vectorLine,
+                  style: lineStyle
+                });
+                neighborLayers.push(vectorLineLayer);
+                map.addLayer(vectorLineLayer);
+              });
+            }
+
+            // Draw zero-hop connections
+            if (node.zero_hop_data) {
+              // Draw lines for heard nodes
+              node.zero_hop_data.heard.forEach(function(heard) {
+                var nnode = nodes[heard.node_id];
+                if (
+                  !nnode ||
+                  !nnode.position ||
+                  !Array.isArray(nnode.position) ||
+                  nnode.position[0] === null ||
+                  nnode.position[1] === null ||
+                  isNaN(nnode.position[0]) ||
+                  isNaN(nnode.position[1]) ||
+                  nnode.position[0] < -180 || nnode.position[0] > 180 ||
+                  nnode.position[1] < -90 || nnode.position[1] > 90 ||
+                  !node.position ||
+                  !Array.isArray(node.position) ||
+                  node.position[0] === null ||
+                  node.position[1] === null ||
+                  isNaN(node.position[0]) ||
+                  isNaN(node.position[1]) ||
+                  node.position[0] < -180 || node.position[0] > 180 ||
+                  node.position[1] < -90 || node.position[1] > 90
+                ) return;
+                
+                const featureLine = new Feature({
+                  geometry: new LineString([
+                    fromLonLat(node.position),
+                    fromLonLat(nnode.position)
+                  ])
+                });
+
+                const vectorLine = new VectorSource({});
+                vectorLine.addFeature(featureLine);
+
+                // Use purple if there's a bi-directional connection
+                var isBidirectional = node.zero_hop_data.heard_by.some(h => h.node_id === heard.node_id);
+                const lineStyle = new Style({
+                  fill: new Fill({ color: isBidirectional ? '#FF66FF' : '#66FF66', weight: 8 }),
+                  stroke: new Stroke({ color: isBidirectional ? '#FF66FF' : '#66FF66', width: 4 }),
+                  zIndex: 5  // Middle z-index for lines
+                });
+
+                const vectorLineLayer = new VectorLayer({
+                  source: vectorLine,
+                  style: lineStyle
+                });
+                neighborLayers.push(vectorLineLayer);
+                map.addLayer(vectorLineLayer);
+              });
+
+              // Draw lines for heard-by nodes (if not already drawn)
+              node.zero_hop_data.heard_by.forEach(function(heard) {
+                var nnode = nodes[heard.node_id];
+                if (
+                  !nnode ||
+                  !nnode.position ||
+                  !Array.isArray(nnode.position) ||
+                  nnode.position[0] === null ||
+                  nnode.position[1] === null ||
+                  isNaN(nnode.position[0]) ||
+                  isNaN(nnode.position[1]) ||
+                  nnode.position[0] < -180 || nnode.position[0] > 180 ||
+                  nnode.position[1] < -90 || nnode.position[1] > 90 ||
+                  !node.position ||
+                  !Array.isArray(node.position) ||
+                  node.position[0] === null ||
+                  node.position[1] === null ||
+                  isNaN(node.position[0]) ||
+                  isNaN(node.position[1]) ||
+                  node.position[0] < -180 || node.position[0] > 180 ||
+                  node.position[1] < -90 || node.position[1] > 90
+                ) return;
+                
+                // Skip if we already drew a line for this connection
+                if (node.zero_hop_data.heard.some(h => h.node_id === heard.node_id)) return;
+                
+                const featureLine = new Feature({
+                  geometry: new LineString([
+                    fromLonLat(node.position),
+                    fromLonLat(nnode.position)
+                  ])
+                });
+
+                const vectorLine = new VectorSource({});
+                vectorLine.addFeature(featureLine);
+
+                const lineStyle = new Style({
+                  fill: new Fill({ color: '#6666FF', weight: 8 }),
+                  stroke: new Stroke({ color: '#6666FF', width: 4 }),
+                  zIndex: 5  // Middle z-index for lines
+                });
+
+                const vectorLineLayer = new VectorLayer({
+                  source: vectorLine,
+                  style: lineStyle
+                });
+                neighborLayers.push(vectorLineLayer);
+                map.addLayer(vectorLineLayer);
+              });
+            }
+
+            // Update the display
+            nodeContent.innerHTML = panel;
+          }, 1200); // Wait for zoom animation to complete
+        }
+      }, 1000); // Wait for layout to complete
+    }
+
+    async function reverseGeocode(lon, lat) {
+      try {
+        const response = await fetch('/api/geocode?lon=' + lon + '&lat=' + lat);
+        if (!response.ok) {
+          console.warn('Geocoding API returned error:', response.status);
+          return null;
+        }
+        const json = await response.json();
+        console.log('Geocoding result:', json);
+        return json;
+      } catch (error) {
+        console.warn('Geocoding request failed:', error);
+        return null;
+      }
+    }
 
     var container = document.getElementById('nodeDetail');
     var content = document.getElementById('popup-content');
@@ -221,7 +1053,7 @@
     var nodeSubtitle = document.getElementById('details-subtitle');
     var nodeContent = document.getElementById('details-content');
 
-    var overlay = new ol.Overlay({
+    const overlay = new Overlay({
       element: container,
       autoPan: true,
       autoPanAnimation: {
@@ -230,69 +1062,211 @@
     });
     map.addOverlay(overlay);
 
-    var selectedStyle = new ol.style.Style({
-      image: new ol.style.Circle({
+    const selectedStyle = new Style({
+      image: new Circle({
         radius: 6,
-        fill: new ol.style.Fill({
+        fill: new Fill({
           color: 'rgba(0, 0, 240, 1)'
         }),
-        stroke: new ol.style.Stroke({
+        stroke: new Stroke({
           color: 'orange',
           width: 2
         })
       })
     });
-    var select = new ol.interaction.Select({
-      condition: ol.events.condition.click,
+
+    const select = new Select({
+      condition: click,
       style: selectedStyle
     });
     map.addInteraction(select);
 
     closer.onclick = function() {
       select.getFeatures().clear();
-      neighborLayers.map(function(layer) {
+      neighborLayers.forEach(function(layer) {
         map.removeLayer(layer);
       });
       neighborLayers = [];
       overlay.setPosition(undefined);
       closer.blur();
+      
+      // Hide and clear node info panel
+      $('#details').hide();
       nodeTitle.innerHTML = '';
       nodeSubtitle.innerHTML = '';
       nodeContent.innerHTML = '';
-      $('#details').hide();
+      
       return false;
     };
 
     map.on('singleclick', async function (event) {
-      neighborLayers.map(function(layer) {
+      // Clear existing neighbor layers
+      neighborLayers.forEach(function(layer) {
         map.removeLayer(layer);
       });
       neighborLayers = [];
 
-      if (map.hasFeatureAtPixel(event.pixel) === true) {
-        $('#details').show();
-        var coordinate = event.coordinate;
+      // Hide node info panel by default
+      $('#details').hide();
+      nodeTitle.innerHTML = '';
+      nodeSubtitle.innerHTML = '';
+      nodeContent.innerHTML = '';
+
+      // Hide settings panel when clicking on the map
+      settingsPanelVisible = false;
+      settingsPanel.style.display = 'none';
+      localStorage.setItem('settingsPanelVisible', settingsPanelVisible);
+
+      if (map.hasFeatureAtPixel(event.pixel)) {
         var feature = map.forEachFeatureAtPixel(event.pixel, function(feature) {
           return feature;
         });
+        
         if (feature) {
           var properties = feature.getProperties();
           var node = properties.node;
           var address = await reverseGeocode(node.position[0], node.position[1]);
-          var display_name = [address.address.town, address.address.city, address.address.county, address.address.state, address.address.country].filter(Boolean).join(', ');
+          var display_name = 'Unknown location';
+          
+          if (address && address.address) {
+            // Handle Nominatim format
+            var location_parts = [address.address.town, address.address.city, address.address.county, address.address.state, address.address.country].filter(Boolean);
+            if (location_parts.length > 0) {
+              display_name = location_parts.join(', ');
+            } else if (address.display_name) {
+              // Fallback to display_name if address components are not available
+              display_name = address.display_name;
+            }
+          } else if (address && address.display_name) {
+            // Handle other geocoding service formats
+            display_name = address.display_name;
+          }
 
+          // Get all connected node IDs
+          const connectedNodeIds = new Set();
+          if (node.neighbors) {
+            node.neighbors.forEach(neighbor => connectedNodeIds.add(neighbor.id));
+          }
+          if (node.zero_hop_data) {
+            node.zero_hop_data.heard.forEach(heard => connectedNodeIds.add(heard.node_id));
+            node.zero_hop_data.heard_by.forEach(heard => connectedNodeIds.add(heard.node_id));
+          }
+
+          // Update z-index of all nodes
+          const features = layer.getSource().getFeatures();
+          features.forEach(function(f) {
+            const n = f.getProperties().node;
+            const currentStyle = f.getStyle();
+            if (!currentStyle) return; // Skip if no style
+
+            const currentImage = currentStyle.getImage();
+            if (!currentImage) return; // Skip if no image
+
+            const currentFill = currentImage.getFill();
+            const currentStroke = currentImage.getStroke();
+            
+            if (n.id === node.id || connectedNodeIds.has(n.id)) {
+              // Clicked node and connected nodes get highest z-index
+              f.setStyle(new Style({
+                image: new Circle({
+                  radius: 6,
+                  fill: new Fill({
+                    color: currentFill ? currentFill.getColor() : 'rgba(0, 0, 240, 1)'
+                  }),
+                  stroke: new Stroke({
+                    color: currentStroke ? currentStroke.getColor() : 'white',
+                    width: currentStroke ? currentStroke.getWidth() : 2
+                  })
+                }),
+                zIndex: 10  // Higher z-index for connected nodes
+              }));
+            } else {
+              // Other nodes get lower z-index
+              f.setStyle(new Style({
+                image: new Circle({
+                  radius: 6,
+                  fill: new Fill({
+                    color: currentFill ? currentFill.getColor() : 'rgba(0, 0, 240, 1)'
+                  }),
+                  stroke: new Stroke({
+                    color: currentStroke ? currentStroke.getColor() : 'white',
+                    width: currentStroke ? currentStroke.getWidth() : 2
+                  })
+                }),
+                zIndex: 1  // Lower z-index for unconnected nodes
+              }));
+            }
+          });
+
+          // Show and populate the node info panel
+          $('#details').show();
+          
           // Build the basic info panel
           var panel = '<div style="position: relative; margin-bottom: 12px">'
             + '<span title="' + (node.online ? 'Online' : 'Offline') + '" style="position: absolute; top: 0; right: 0; font-size: 1.5em">' 
             + (node.online ? '🟢' : '⚫') + '</span>'
-            + '<div class="fw-bold">' + node.long_name + '</div>'
-            + '<div class="text-muted small">' + node.id + '</div>'
+            + '<div class="fw-bold"><a href="node_' + node.id + '.html" target="_blank">' + node.long_name + '</a></div>'
+            + '<div class="text-muted small">' + node.id + ' <span style="font-weight: bold; color: #333;">(' + node.short_name + ')</span></div>'
             + '</div>'
             + '<div class="small">'
             + '<div class="mb-2"><i class="text-muted">Last seen:</i> ' + node.last_seen + '</div>'
+            + '<div class="mb-2"><i class="text-muted">MQTT Status:</i> ' 
+            + (node.ts_uplink ? 'Connected ' + timeAgo(node.ts_uplink) : 'Not Connected')
+            + '</div>'
             + '<div class="mb-2"><i class="text-muted">Position:</i> ' + node.position + '</div>'
             + '<div class="mb-2"><i class="text-muted">Location:</i> ' + display_name + '</div>'
+            + '<div class="mb-2"><i class="text-muted">Channel:</i> ' 
+            + node.channel_name
             + '</div>';
+          
+          // Add mapreport-specific fields if available
+          if (node.has_default_channel !== null && node.has_default_channel !== undefined) {
+            panel += '<div class="mb-2"><i class="text-muted">Default Channel:</i> ' 
+              + (node.has_default_channel ? '<span style="color: green;">Yes</span>' : '<span style="color: orange;">No</span>')
+              + '</div>';
+          }
+          
+          if (node.num_online_local_nodes !== null && node.num_online_local_nodes !== undefined) {
+            panel += '<div class="mb-2"><i class="text-muted">Local Nodes:</i> ' 
+              + node.num_online_local_nodes + ' nodes</div>';
+          }
+          
+          if (node.region !== null && node.region !== undefined) {
+            var regionNames = {
+              1: 'US (915 MHz)',
+              2: 'EU (433 MHz)', 
+              3: 'CN (470 MHz)',
+              4: 'JP (923 MHz)',
+              5: 'ANZ (915 MHz)',
+              6: 'KR (920 MHz)',
+              7: 'TW (920 MHz)',
+              8: 'RU (868 MHz)',
+              9: 'IN (865 MHz)',
+              10: 'NZ (915 MHz)',
+              11: 'TH (920 MHz)',
+              12: 'LORA_24 (2.4 GHz)'
+            };
+            panel += '<div class="mb-2"><i class="text-muted">LoRa Region:</i> ' 
+              + (regionNames[node.region] || 'Unknown (' + node.region + ')') + '</div>';
+          }
+          
+          if (node.modem_preset !== null && node.modem_preset !== undefined) {
+            var modemPresetNames = {
+              0: 'Long Fast',
+              1: 'Long Slow',
+              2: 'Very Long Slow',
+              3: 'Medium Slow',
+              4: 'Medium Fast',
+              5: 'Short Slow',
+              6: 'Short Fast',
+              7: 'Long Moderate',
+              8: 'Short Turbo'
+            };
+            panel += '<div class="mb-2"><i class="text-muted">Modem Preset:</i> ' 
+              + (modemPresetNames[node.modem_preset] || 'Unknown (' + node.modem_preset + ')') + '</div>';
+          }
+          
+          panel += '</div>';
 
           // Add the heard section
           panel += '<b>Heard (zero hop)</b><br/>';
@@ -375,26 +1349,43 @@
           if (node.neighbors) {
             node.neighbors.forEach(function(neighbor) {
               var nnode = nodes[neighbor.id];
-              if (!nnode || !nnode.position) return;
+              if (
+                !nnode ||
+                !nnode.position ||
+                !Array.isArray(nnode.position) ||
+                nnode.position[0] === null ||
+                nnode.position[1] === null ||
+                isNaN(nnode.position[0]) ||
+                isNaN(nnode.position[1]) ||
+                nnode.position[0] < -180 || nnode.position[0] > 180 ||
+                nnode.position[1] < -90 || nnode.position[1] > 90 ||
+                !node.position ||
+                !Array.isArray(node.position) ||
+                node.position[0] === null ||
+                node.position[1] === null ||
+                isNaN(node.position[0]) ||
+                isNaN(node.position[1]) ||
+                node.position[0] < -180 || node.position[0] > 180 ||
+                node.position[1] < -90 || node.position[1] > 90
+              ) return;
               
-              var points = [node.position, nnode.position];
-              for (var i = 0; i < points.length; i++) {
-                points[i] = ol.proj.transform(points[i], 'EPSG:4326', 'EPSG:3857');
-              }
-
-              var featureLine = new ol.Feature({
-                geometry: new ol.geom.LineString(points)
+              const featureLine = new Feature({
+                geometry: new LineString([
+                  fromLonLat(node.position),
+                  fromLonLat(nnode.position)
+                ])
               });
 
-              var vectorLine = new ol.source.Vector({});
+              const vectorLine = new VectorSource({});
               vectorLine.addFeature(featureLine);
 
-              var lineStyle = new ol.style.Style({
-                fill: new ol.style.Fill({ color: '#66FF66', weight: 8 }),
-                stroke: new ol.style.Stroke({ color: '#66FF66', width: 4 })
+              const lineStyle = new Style({
+                fill: new Fill({ color: '#66FF66', weight: 8 }),
+                stroke: new Stroke({ color: '#66FF66', width: 4 }),
+                zIndex: 5  // Middle z-index for lines
               });
 
-              var vectorLineLayer = new ol.layer.Vector({
+              const vectorLineLayer = new VectorLayer({
                 source: vectorLine,
                 style: lineStyle
               });
@@ -408,28 +1399,45 @@
             // Draw lines for heard nodes
             node.zero_hop_data.heard.forEach(function(heard) {
               var nnode = nodes[heard.node_id];
-              if (!nnode || !nnode.position) return;
+              if (
+                !nnode ||
+                !nnode.position ||
+                !Array.isArray(nnode.position) ||
+                nnode.position[0] === null ||
+                nnode.position[1] === null ||
+                isNaN(nnode.position[0]) ||
+                isNaN(nnode.position[1]) ||
+                nnode.position[0] < -180 || nnode.position[0] > 180 ||
+                nnode.position[1] < -90 || nnode.position[1] > 90 ||
+                !node.position ||
+                !Array.isArray(node.position) ||
+                node.position[0] === null ||
+                node.position[1] === null ||
+                isNaN(node.position[0]) ||
+                isNaN(node.position[1]) ||
+                node.position[0] < -180 || node.position[0] > 180 ||
+                node.position[1] < -90 || node.position[1] > 90
+              ) return;
               
-              var points = [node.position, nnode.position];
-              for (var i = 0; i < points.length; i++) {
-                points[i] = ol.proj.transform(points[i], 'EPSG:4326', 'EPSG:3857');
-              }
-
-              var featureLine = new ol.Feature({
-                geometry: new ol.geom.LineString(points)
+              const featureLine = new Feature({
+                geometry: new LineString([
+                  fromLonLat(node.position),
+                  fromLonLat(nnode.position)
+                ])
               });
 
-              var vectorLine = new ol.source.Vector({});
+              const vectorLine = new VectorSource({});
               vectorLine.addFeature(featureLine);
 
               // Use purple if there's a bi-directional connection
               var isBidirectional = node.zero_hop_data.heard_by.some(h => h.node_id === heard.node_id);
-              var lineStyle = new ol.style.Style({
-                fill: new ol.style.Fill({ color: isBidirectional ? '#FF66FF' : '#66FF66', weight: 8 }),
-                stroke: new ol.style.Stroke({ color: isBidirectional ? '#FF66FF' : '#66FF66', width: 4 })
+              const lineStyle = new Style({
+                fill: new Fill({ color: isBidirectional ? '#FF66FF' : '#66FF66', weight: 8 }),
+                stroke: new Stroke({ color: isBidirectional ? '#FF66FF' : '#66FF66', width: 4 }),
+                zIndex: 5  // Middle z-index for lines
               });
 
-              var vectorLineLayer = new ol.layer.Vector({
+              const vectorLineLayer = new VectorLayer({
                 source: vectorLine,
                 style: lineStyle
               });
@@ -440,29 +1448,46 @@
             // Draw lines for heard-by nodes (if not already drawn)
             node.zero_hop_data.heard_by.forEach(function(heard) {
               var nnode = nodes[heard.node_id];
-              if (!nnode || !nnode.position) return;
+              if (
+                !nnode ||
+                !nnode.position ||
+                !Array.isArray(nnode.position) ||
+                nnode.position[0] === null ||
+                nnode.position[1] === null ||
+                isNaN(nnode.position[0]) ||
+                isNaN(nnode.position[1]) ||
+                nnode.position[0] < -180 || nnode.position[0] > 180 ||
+                nnode.position[1] < -90 || nnode.position[1] > 90 ||
+                !node.position ||
+                !Array.isArray(node.position) ||
+                node.position[0] === null ||
+                node.position[1] === null ||
+                isNaN(node.position[0]) ||
+                isNaN(node.position[1]) ||
+                node.position[0] < -180 || node.position[0] > 180 ||
+                node.position[1] < -90 || node.position[1] > 90
+              ) return;
               
               // Skip if we already drew a line for this connection
               if (node.zero_hop_data.heard.some(h => h.node_id === heard.node_id)) return;
               
-              var points = [node.position, nnode.position];
-              for (var i = 0; i < points.length; i++) {
-                points[i] = ol.proj.transform(points[i], 'EPSG:4326', 'EPSG:3857');
-              }
-
-              var featureLine = new ol.Feature({
-                geometry: new ol.geom.LineString(points)
+              const featureLine = new Feature({
+                geometry: new LineString([
+                  fromLonLat(node.position),
+                  fromLonLat(nnode.position)
+                ])
               });
 
-              var vectorLine = new ol.source.Vector({});
+              const vectorLine = new VectorSource({});
               vectorLine.addFeature(featureLine);
 
-              var lineStyle = new ol.style.Style({
-                fill: new ol.style.Fill({ color: '#6666FF', weight: 8 }),
-                stroke: new ol.style.Stroke({ color: '#6666FF', width: 4 })
+              const lineStyle = new Style({
+                fill: new Fill({ color: '#6666FF', weight: 8 }),
+                stroke: new Stroke({ color: '#6666FF', width: 4 }),
+                zIndex: 5  // Middle z-index for lines
               });
 
-              var vectorLineLayer = new ol.layer.Vector({
+              const vectorLineLayer = new VectorLayer({
                 source: vectorLine,
                 style: lineStyle
               });
@@ -473,18 +1498,7 @@
 
           // Update the display
           nodeContent.innerHTML = panel;
-        } else {
-          nodeTitle.innerHTML = 'Unknown';
-          nodeSubtitle.innerHTML = 'UNK';
-          nodeContent.innerHTML = '';
-          $('#details').hide();
         }
-      } else {
-        nodeTitle.innerHTML = '';
-        nodeSubtitle.innerHTML = '';
-        nodeContent.innerHTML = '';
-        closer.blur();
-        $('#details').hide();
       }
     });
   </script>
@@ -501,7 +1515,7 @@
     }
     #details {
       position: absolute;
-      top: 20px;
+      top: 140px;
       right: 20px;
       z-index: 1000;
     }
@@ -547,4 +1561,4 @@
       content: "x";
     }
   </style>
-{% endblock %}
+{% endblock %} 

@@ -9,6 +9,8 @@ node_modules/
 .github_pat
 .env
 .venv
+.cursorrules
+.cursor/
 
 backups/*
 caddy
@@ -19,6 +21,7 @@ postgres/data/*
 config.json
 docker-compose.yml
 spa
+venv/
 
 .pnp.*
 .yarn/*

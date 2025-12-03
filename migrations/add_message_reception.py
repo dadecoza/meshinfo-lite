@@ -1,12 +1,19 @@
 import logging
 import configparser
 
+def clear_unread_results(cursor):
+    """Clear any unread results from the cursor"""
+    try:
+        while cursor.nextset():
+            pass
+    except:
+        pass
+
 def migrate(db):
-    """
-    Migrate database to add message_id and message_reception tracking
-    """
+    cursor = None
     try:
         cursor = db.cursor()
+        clear_unread_results(cursor)
         
         # Ensure we're in the correct database
         cursor.execute("SELECT DATABASE()")
@@ -40,6 +47,19 @@ def migrate(db):
             WHERE TABLE_NAME = 'message_reception'
         """)
         has_reception_table = cursor.fetchone()[0] > 0
+        logging.info(f"message_reception table exists: {has_reception_table}")
+
+        # Double-check that we can actually access the table
+        if has_reception_table:
+            # Clear any unread results before checking table accessibility
+            clear_unread_results(cursor)
+            try:
+                cursor.execute("SELECT COUNT(*) FROM message_reception LIMIT 1")
+                result = cursor.fetchone()
+                logging.info("message_reception table is accessible")
+            except Exception as table_error:
+                logging.warning(f"message_reception table exists in schema but not accessible: {table_error}")
+                has_reception_table = False
 
         if not has_reception_table:
             logging.info("Creating message_reception table...")
@@ -54,7 +74,10 @@ def migrate(db):
                     rx_rssi INTEGER,
                     hop_limit INTEGER DEFAULT NULL,
                     hop_start INTEGER DEFAULT NULL,
-                    UNIQUE KEY unique_reception (message_id, received_by_id)
+                    relay_node VARCHAR(4) DEFAULT NULL,
+                    UNIQUE KEY unique_reception (message_id, received_by_id),
+                    INDEX idx_messagereception_message_receiver (message_id, received_by_id),
+                    INDEX idx_message_reception_relay_node (relay_node)
                 )
             """)
             db.commit()
@@ -109,9 +132,39 @@ def migrate(db):
                 logging.info("Migrating from hop_count to hop_limit/hop_start...")
                 # No need to remove the hop_count column, just leave it for backward compatibility
                 logging.info("Migration complete")
+                
+            # Check if the performance index exists
+            cursor.execute("""
+                SELECT COUNT(*)
+                FROM information_schema.statistics
+                WHERE table_schema = DATABASE()
+                AND table_name = 'message_reception'
+                AND index_name = 'idx_messagereception_message_receiver'
+            """)
+            has_performance_index = cursor.fetchone()[0] > 0
+            
+            if not has_performance_index:
+                logging.info("Adding performance index to message_reception table...")
+                try:
+                    cursor.execute("""
+                        CREATE INDEX idx_messagereception_message_receiver 
+                        ON message_reception(message_id, received_by_id)
+                    """)
+                    db.commit()
+                    logging.info("Added performance index to message_reception table successfully")
+                except Exception as index_error:
+                    logging.warning(f"Could not add performance index to message_reception table: {index_error}")
+                    # Don't raise the error, just log it and continue
+            else:
+                logging.info("Performance index already exists on message_reception table")
 
     except Exception as e:
         logging.error(f"Error performing migration: {e}")
+        db.rollback()
         raise
     finally:
-        cursor.close()
+        if cursor:
+            try:
+                cursor.close()
+            except:
+                pass

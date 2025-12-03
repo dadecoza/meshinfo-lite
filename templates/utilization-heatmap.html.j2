@@ -1,0 +1,628 @@
+{% set this_page = "utilization-heatmap" %}
+{% extends "layout.html.j2" %}
+
+{% block title %}Channel Utilization Map | MeshInfo{% endblock %}
+
+{% block og_title %}Channel Utilization Heatmap | {{ config['mesh']['name'] }}{% endblock %}
+{% block og_description %}Heatmap visualization of channel utilization across the {{ config['mesh']['short_name'] }} mesh network. Analyze network activity patterns and coverage density.{% endblock %}
+{% block og_image_width %}1200{% endblock %}
+{% block og_image_height %}630{% endblock %}
+{% block twitter_title %}Channel Utilization Heatmap | {{ config['mesh']['name'] }}{% endblock %}
+{% block twitter_description %}Heatmap visualization of channel utilization across the {{ config['mesh']['short_name'] }} mesh network. Analyze network activity patterns and coverage density.{% endblock %}
+{% block twitter_image_width %}1200{% endblock %}
+{% block twitter_image_height %}630{% endblock %}
+
+{% block head %}
+  {{ super() }}
+  {% include "map_dependencies.html.j2" %}
+{% endblock %}
+
+{% block content %}
+  <div id="map" class="map" style="height: 100vh"></div>
+  
+  {# Settings Toggle Button #}
+  <button id="settingsToggle" class="settings-toggle">
+    <i class="bi bi-gear-fill"></i>
+  </button>
+
+  {# Settings Panel - Hidden by default #}
+  <div id="settings" class="settings-panel" style="display: none;">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h5 class="m-0">Settings</h5>
+      <small class="text-muted">Changes are only saved in this browser.</small>
+    </div>
+    
+    <div class="mb-3">
+      <label class="form-label">Time Range</label>
+      <select id="timeRange" class="form-select form-select-sm">
+        <option value="1">Last Hour</option>
+        <option value="6">Last 6 Hours</option>
+        <option value="24" selected>Last 24 Hours</option>
+        <option value="168">Last Week</option>
+        <option value="720">Last Month</option>
+      </select>
+      <small class="text-muted d-block">Time range for utilization data.</small>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label">Channel Filter</label>
+      <select id="channelFilter" class="form-select form-select-sm">
+        <option value="all" selected>All Channels</option>
+        {% for channel in Channel %}
+          <option value="{{ channel.value }}">{{ utils.get_channel_name(channel.value) }} ({{ channel.value }})</option>
+        {% endfor %}
+      </select>
+      <small class="text-muted d-block">Filter by specific channel.</small>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label">Heatmap Radius</label>
+      <input type="range" id="heatmapRadius" class="form-range" min="10" max="100" value="30">
+      <small class="text-muted d-block">Size of heatmap points (10-100 pixels).</small>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label">Heatmap Blur</label>
+      <input type="range" id="heatmapBlur" class="form-range" min="5" max="30" value="26">
+      <small class="text-muted d-block">Blur effect for heatmap.</small>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label">Heatmap Opacity</label>
+      <input type="range" id="heatmapOpacity" class="form-range" min="0.2" max="1" step="0.01" value="0.4">
+      <small class="text-muted d-block">Adjust heatmap transparency.</small>
+    </div>
+
+    <div class="mb-3">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="autoScaleRadius" checked>
+        <label class="form-check-label" for="autoScaleRadius">
+          Auto-scale radius with zoom
+        </label>
+      </div>
+      <small class="text-muted d-block">Automatically adjust radius based on zoom level.</small>
+    </div>
+
+    <div class="mb-3">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="useContactDistance" checked>
+        <label class="form-check-label" for="useContactDistance">
+          Use contact distance for radius
+        </label>
+      </div>
+      <small class="text-muted d-block">Set circle radius based on mean contact distance (default 2km).</small>
+    </div>
+  </div>
+
+  {# Legend #}
+  <div id="legend" class="p-3" style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+    <div class="d-flex justify-content-between align-items-start mb-2">
+      <div class="fw-bold">Channel Utilization Heatmap</div>
+      <button id="legendToggle" class="btn btn-sm btn-outline-secondary" style="padding: 2px 6px; font-size: 0.8em;">
+        <i class="bi bi-info-circle"></i>
+      </button>
+    </div>
+    <div id="legendContent">
+      <canvas id="utilization-colorbar" width="180" height="28" style="display:block;margin-bottom:6px;"></canvas>
+      <div class="d-flex align-items-center mb-2">
+        <div style="width: 20px; height: 20px; background: linear-gradient(to right, #00ff00, #ffff00, #ff8000, #ff0000); border-radius: 4px; margin-right: 8px;"></div>
+        <small class="text-muted">Low → High Utilization</small>
+      </div>
+      <div class="small">
+        <div class="mb-1"><span style="color: #00ff00;">●</span> ≤ 10% (Green)</div>
+        <div class="mb-1"><span style="color: #ffff00;">●</span> 10–20% (Yellow)</div>
+        <div class="mb-1"><span style="color: #ff8000;">●</span> 20–30% (Orange)</div>
+        <div class="mb-1"><span style="color: #ff0000;">●</span> ≥ 40% (Red)</div>
+      </div>
+      <hr class="my-2">
+      <div class="small text-muted">
+        <div class="mb-1">Circle size: Based on mean contact distance</div>
+        <div class="mb-1">Default: 2km if no contacts</div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import Map from 'ol/Map.js';
+    import View from 'ol/View.js';
+    import TileLayer from 'ol/layer/Tile.js';
+    import OSM from 'ol/source/OSM.js';
+    import Heatmap from 'ol/layer/Heatmap.js';
+    import VectorSource from 'ol/source/Vector.js';
+    import Feature from 'ol/Feature.js';
+    import Point from 'ol/geom/Point.js';
+    import {fromLonLat, getPointResolution, transform} from 'ol/proj.js';
+    import CircleGeom from 'ol/geom/Circle.js';
+    import VectorLayer from 'ol/layer/Vector.js';
+    import Style from 'ol/style/Style.js';
+    import Fill from 'ol/style/Fill.js';
+    import Stroke from 'ol/style/Stroke.js';
+    import Overlay from 'ol/Overlay.js';
+    import Polygon from 'ol/geom/Polygon.js';
+
+    // Initialize map
+    const default_position = {
+      latitude: 38.5816,
+      longitude: -121.4944,
+    };
+    var server_position = null;
+    {% if 'latitude' in config['mesh'] and 'longitude'in config['mesh'] %}
+      server_position = {
+        latitude: {{ config['mesh']['latitude'] }},
+        longitude: {{ config['mesh']['longitude'] }}
+      };
+    {% else %}
+      server_position = default_position;
+    {% endif %}
+
+    var server_zoom = null;
+    {% if 'zoom' in config['mesh'] %}
+      server_zoom = {{ config['mesh']['zoom'] }};
+    {% else %}
+      server_zoom = 9.5;
+    {% endif %}
+
+    const map = new Map({
+      target: 'map',
+      layers: [
+        new TileLayer({
+          source: new OSM()
+        })
+      ],
+      view: new View({
+        center: fromLonLat([server_position.longitude, server_position.latitude]),
+        zoom: server_zoom
+      })
+    });
+
+    // Settings management
+    const settings = {
+      timeRange: localStorage.getItem('utilizationTimeRange') || '24',
+      channelFilter: localStorage.getItem('utilizationChannelFilter') || 'all',
+      heatmapRadius: parseInt(localStorage.getItem('utilizationHeatmapRadius')) || 30,
+      heatmapBlur: parseInt(localStorage.getItem('utilizationHeatmapBlur')) || 26,
+      heatmapOpacity: parseFloat(localStorage.getItem('utilizationHeatmapOpacity')) || 0.4,
+      autoScaleRadius: localStorage.getItem('utilizationAutoScaleRadius') !== 'false',
+      useContactDistance: localStorage.getItem('utilizationUseContactDistance') !== 'false'
+    };
+
+    // Initialize settings UI
+    document.getElementById('timeRange').value = settings.timeRange;
+    document.getElementById('channelFilter').value = settings.channelFilter;
+    document.getElementById('heatmapRadius').value = settings.heatmapRadius;
+    document.getElementById('heatmapBlur').value = settings.heatmapBlur;
+    document.getElementById('heatmapOpacity').value = settings.heatmapOpacity;
+    document.getElementById('autoScaleRadius').checked = settings.autoScaleRadius;
+    document.getElementById('useContactDistance').checked = settings.useContactDistance;
+
+    // Settings toggle functionality
+    const settingsToggle = document.getElementById('settingsToggle');
+    const settingsPanel = document.getElementById('settings');
+    let settingsPanelVisible = localStorage.getItem('utilizationSettingsPanelVisible') === 'true';
+    settingsPanel.style.display = settingsPanelVisible ? 'block' : 'none';
+
+    settingsToggle.addEventListener('click', () => {
+      settingsPanelVisible = !settingsPanelVisible;
+      settingsPanel.style.display = settingsPanelVisible ? 'block' : 'none';
+      localStorage.setItem('utilizationSettingsPanelVisible', settingsPanelVisible);
+    });
+
+    // Heatmap layer
+    let heatmapLayer = null;
+
+    // Function to create heatmap features from utilization data
+    function createHeatmapFeatures(utilizationData) {
+      const features = [];
+      
+      utilizationData.forEach(node => {
+        if (node.position && node.position.longitude_i && node.position.latitude_i) {
+          const lon = node.position.longitude_i / 10000000;
+          const lat = node.position.latitude_i / 10000000;
+          
+          // Validate coordinates
+          if (lon >= -180 && lon <= 180 && lat >= -90 && lat <= 90) {
+            const feature = new Feature({
+              geometry: new Point(fromLonLat([lon, lat])),
+              weight: Math.min(node.utilization / 40, 1.0), // Normalize to 0-1 range (40% = 1.0)
+              nodeData: node // Store node data for radius calculation
+            });
+            features.push(feature);
+          }
+        }
+      });
+      
+      return features;
+    }
+
+    // Function to calculate effective radius based on real-world contact distance using OpenLayers getPointResolution
+    function getEffectiveRadius(nodeData = null) {
+      let baseRadius = settings.heatmapRadius;
+      if (settings.useContactDistance && nodeData && nodeData.mean_contact_distance) {
+        const view = map.getView();
+        const center = view.getCenter();
+        const resolution = view.getResolution();
+        // Get meters per pixel at the map center
+        const metersPerPixel = getPointResolution('EPSG:3857', resolution, center);
+        const distanceInMeters = nodeData.mean_contact_distance * 1000;
+        // Remove the ceiling: allow any size above 4px
+        return Math.max(4, distanceInMeters / metersPerPixel);
+      }
+      return baseRadius;
+    }
+
+    // Function to update heatmap
+    function updateHeatmap() {
+      // Remove existing heatmap layer
+      if (heatmapLayer) {
+        map.removeLayer(heatmapLayer);
+      }
+
+      // Show loading state
+      const loadingDiv = document.createElement('div');
+      loadingDiv.id = 'heatmap-loading';
+      loadingDiv.innerHTML = '<div class="text-center p-3"><i class="bi bi-arrow-clockwise spin"></i> Loading heatmap...</div>';
+      loadingDiv.style.cssText = 'position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); z-index: 1001;';
+      document.getElementById('map').appendChild(loadingDiv);
+
+      // Fetch utilization data
+      fetch(`/api/utilization-data?time_range=${settings.timeRange}&channel=${settings.channelFilter}`)
+        .then(response => response.json())
+        .then(data => {
+          if (data.error) {
+            console.error('Error fetching utilization data:', data.error);
+            return;
+          }
+
+          // Ensure the transparent vector layer is updated for hit detection
+          updateNodeCircleLayer(data.nodes);
+
+          const features = createHeatmapFeatures(data.nodes);
+          
+          if (features.length > 0) {
+            const source = new VectorSource({
+              features: features
+            });
+
+            // Calculate average radius if using contact distance
+            let effectiveRadius = getEffectiveRadius();
+            if (settings.useContactDistance) {
+              const radii = features.map(feature => {
+                const nodeData = feature.get('nodeData');
+                return getEffectiveRadius(nodeData);
+              });
+              // Remove the ceiling: allow any size above 4px
+              effectiveRadius = radii.reduce((sum, radius) => sum + radius, 0) / radii.length;
+            }
+
+            // Create heatmap with correct radius from the start
+            heatmapLayer = new Heatmap({
+              source: source,
+              radius: effectiveRadius,
+              blur: settings.heatmapBlur,
+              gradient: [
+                '#00ff00', // 0% (green)
+                '#00ff00', // 0–10%
+                '#ffff00', // 10% (yellow)
+                '#ffff00', // 10–20%
+                '#ff8000', // 20% (orange)
+                '#ff8000', // 20–30%
+                '#ff8000', // 30–40%
+                '#ff0000'  // 40%+ (red)
+              ]
+            });
+
+            // Always set opacity after adding the layer
+            heatmapLayer.setOpacity(settings.heatmapOpacity);
+            // Add layer and remove loading state
+            map.addLayer(heatmapLayer);
+            const loadingElement = document.getElementById('heatmap-loading');
+            if (loadingElement) {
+              loadingElement.remove();
+            }
+          } else {
+            // Remove loading state even if no features
+            const loadingElement = document.getElementById('heatmap-loading');
+            if (loadingElement) {
+              loadingElement.remove();
+            }
+          }
+        })
+        .catch(error => {
+          console.error('Error updating heatmap:', error);
+          // Remove loading state on error
+          const loadingElement = document.getElementById('heatmap-loading');
+          if (loadingElement) {
+            loadingElement.remove();
+          }
+        });
+    }
+
+    // Event listeners for settings changes
+    document.getElementById('timeRange').addEventListener('change', function(e) {
+      settings.timeRange = e.target.value;
+      localStorage.setItem('utilizationTimeRange', e.target.value);
+      updateHeatmap();
+    });
+
+    document.getElementById('channelFilter').addEventListener('change', function(e) {
+      settings.channelFilter = e.target.value;
+      localStorage.setItem('utilizationChannelFilter', e.target.value);
+      updateHeatmap();
+    });
+
+    document.getElementById('heatmapRadius').addEventListener('input', function(e) {
+      settings.heatmapRadius = parseInt(e.target.value);
+      localStorage.setItem('utilizationHeatmapRadius', e.target.value);
+      updateHeatmap();
+    });
+
+    document.getElementById('heatmapBlur').addEventListener('input', function(e) {
+      settings.heatmapBlur = parseInt(e.target.value);
+      localStorage.setItem('utilizationHeatmapBlur', e.target.value);
+      updateHeatmap();
+      // Force opacity update after heatmap is recreated
+      setTimeout(() => {
+        if (heatmapLayer) heatmapLayer.setOpacity(settings.heatmapOpacity);
+      }, 0);
+    });
+
+    document.getElementById('heatmapOpacity').addEventListener('input', function(e) {
+      settings.heatmapOpacity = parseFloat(e.target.value);
+      localStorage.setItem('utilizationHeatmapOpacity', e.target.value);
+      if (heatmapLayer) heatmapLayer.setOpacity(settings.heatmapOpacity);
+    });
+
+    document.getElementById('autoScaleRadius').addEventListener('change', function(e) {
+      settings.autoScaleRadius = e.target.checked;
+      localStorage.setItem('utilizationAutoScaleRadius', e.target.checked);
+      updateHeatmap();
+    });
+
+    // Disable/enable the Heatmap Radius slider based on useContactDistance
+    function updateRadiusSliderState() {
+      const slider = document.getElementById('heatmapRadius');
+      const container = slider.parentElement;
+      slider.disabled = settings.useContactDistance;
+      container.style.opacity = settings.useContactDistance ? 0.5 : 1;
+    }
+    // Call once on page load
+    updateRadiusSliderState();
+
+    document.getElementById('useContactDistance').addEventListener('change', function(e) {
+      settings.useContactDistance = e.target.checked;
+      localStorage.setItem('utilizationUseContactDistance', e.target.checked);
+      updateRadiusSliderState();
+      updateHeatmap();
+    });
+
+    // Update heatmap when zoom changes (if auto-scale is enabled)
+    map.getView().on('change:resolution', function() {
+      if (settings.autoScaleRadius && heatmapLayer) {
+        // Calculate new radius based on current zoom and settings
+        let newRadius = getEffectiveRadius();
+        
+        // If using contact distance, recalculate with current zoom
+        if (settings.useContactDistance) {
+          const features = heatmapLayer.getSource().getFeatures();
+          if (features.length > 0) {
+            const radii = features.map(feature => {
+              const nodeData = feature.get('nodeData');
+              return getEffectiveRadius(nodeData);
+            });
+            newRadius = radii.reduce((sum, radius) => sum + radius, 0) / radii.length;
+          }
+        }
+        
+        // Update the radius of the existing heatmap layer
+        heatmapLayer.setRadius(newRadius);
+      }
+    });
+
+    // Legend toggle functionality
+    const legendToggle = document.getElementById('legendToggle');
+    const legendContent = document.getElementById('legendContent');
+    let legendMinimized = localStorage.getItem('utilizationLegendMinimized') === 'true';
+    
+    function updateLegendState() {
+      if (legendMinimized) {
+        legendContent.style.display = 'none';
+        legendToggle.innerHTML = '<i class="bi bi-info-circle"></i>';
+        legendToggle.title = 'Show legend';
+      } else {
+        legendContent.style.display = 'block';
+        legendToggle.innerHTML = '<i class="bi bi-x-circle"></i>';
+        legendToggle.title = 'Hide legend';
+      }
+    }
+    
+    // Initialize legend state
+    updateLegendState();
+    
+    legendToggle.addEventListener('click', () => {
+      legendMinimized = !legendMinimized;
+      localStorage.setItem('utilizationLegendMinimized', legendMinimized);
+      updateLegendState();
+    });
+
+    // Initial heatmap update
+    updateHeatmap();
+
+    // Add transparent vector layer for hit detection
+    let nodeCircleLayer = null;
+    // Helper: create geodesic circle polygon (returns Polygon in map projection)
+    function createGeodesicPolygon(centerLonLat, radiusMeters, sides = 64) {
+      const coords = [];
+      const [lon, lat] = centerLonLat;
+      for (let i = 0; i < sides; ++i) {
+        const angle = 2 * Math.PI * i / sides;
+        // Destination point given distance and bearing
+        const dx = radiusMeters * Math.cos(angle);
+        const dy = radiusMeters * Math.sin(angle);
+        // Approximate using simple equirectangular projection (good enough for small radii)
+        const earthRadius = 6378137;
+        const dLat = (dy / earthRadius) * (180 / Math.PI);
+        const dLon = (dx / (earthRadius * Math.cos(Math.PI * lat / 180))) * (180 / Math.PI);
+        coords.push([lon + dLon, lat + dLat]);
+      }
+      coords.push(coords[0]); // close ring
+      // Transform to map projection
+      const coords3857 = coords.map(c => fromLonLat(c));
+      return new Polygon([coords3857]);
+    }
+    // In updateNodeCircleLayer, use geodesic polygon for each node
+    function updateNodeCircleLayer(utilizationData) {
+      if (nodeCircleLayer) {
+        map.removeLayer(nodeCircleLayer);
+      }
+      const features = [];
+      utilizationData.forEach(node => {
+        if (node.position && node.position.longitude_i && node.position.latitude_i && node.mean_contact_distance) {
+          const lon = node.position.longitude_i / 10000000;
+          const lat = node.position.latitude_i / 10000000;
+          const radiusMeters = node.mean_contact_distance * 1000;
+          const polygon = createGeodesicPolygon([lon, lat], radiusMeters);
+          const feature = new Feature({ geometry: polygon, nodeData: node });
+          // Transparent style (no fill, no stroke)
+          feature.setStyle(new Style({ fill: new Fill({ color: 'rgba(0,0,0,0)' }), stroke: new Stroke({ color: 'rgba(0,0,0,0)', width: 0 }) }));
+          features.push(feature);
+        }
+      });
+      nodeCircleLayer = new VectorLayer({
+        source: new VectorSource({ features }),
+        zIndex: 100 // above base map, below heatmap
+      });
+      map.addLayer(nodeCircleLayer);
+    }
+
+    // Utilization color interpolation (green/yellow/orange/red, now up to 40%)
+    function getUtilizationColor(util) {
+      if (util <= 10) {
+        return interpolateColor('#00ff00', '#ffff00', util / 10);
+      } else if (util <= 20) {
+        return interpolateColor('#ffff00', '#ff8000', (util - 10) / 10);
+      } else if (util <= 30) {
+        return interpolateColor('#ff8000', '#ff8000', 1); // Hold orange from 20-30
+      } else if (util <= 40) {
+        return interpolateColor('#ff8000', '#ff0000', (util - 30) / 10);
+      } else {
+        return '#ff0000';
+      }
+    }
+    function interpolateColor(a, b, t) {
+      const ah = a.replace('#', ''), bh = b.replace('#', '');
+      const ar = parseInt(ah.substring(0,2), 16), ag = parseInt(ah.substring(2,4), 16), ab = parseInt(ah.substring(4,6), 16);
+      const br = parseInt(bh.substring(0,2), 16), bg = parseInt(bh.substring(2,4), 16), bb = parseInt(bh.substring(4,6), 16);
+      const rr = Math.round(ar + (br - ar) * t);
+      const rg = Math.round(ag + (bg - ag) * t);
+      const rb = Math.round(ab + (bb - ab) * t);
+      return '#' + ((1 << 24) + (rr << 16) + (rg << 8) + rb).toString(16).slice(1);
+    }
+
+    // Tooltip overlay for node details (update pointermove logic to use nodeCircleLayer)
+    const tooltip = document.createElement('div');
+    tooltip.className = 'ol-tooltip ol-tooltip-static';
+    tooltip.style.display = 'none';
+    tooltip.style.position = 'absolute';
+    tooltip.style.background = 'rgba(255,255,255,0.95)';
+    tooltip.style.border = '1px solid #ccc';
+    tooltip.style.borderRadius = '6px';
+    tooltip.style.padding = '8px 12px';
+    tooltip.style.pointerEvents = 'none';
+    tooltip.style.fontSize = '0.95em';
+    tooltip.style.zIndex = 1100;
+    document.body.appendChild(tooltip);
+    let tooltipOverlay = new Overlay({
+      element: tooltip,
+      offset: [0, -15],
+      positioning: 'bottom-center',
+      stopEvent: false
+    });
+    map.addOverlay(tooltipOverlay);
+
+    map.on('pointermove', function(evt) {
+      if (evt.dragging) {
+        tooltip.style.display = 'none';
+        return;
+      }
+      const features = [];
+      map.forEachFeatureAtPixel(evt.pixel, function(f, l) {
+        if (l === nodeCircleLayer && f.get('nodeData')) features.push(f);
+      });
+      if (features.length > 0) {
+        tooltip.innerHTML = features.map(feature => {
+          const node = feature.get('nodeData');
+          const color = getUtilizationColor(node.utilization);
+          return `
+            <div style="margin-bottom:6px;">
+              <span style="display:inline-block;width:1em;height:1em;background:${color};border-radius:50%;border:1px solid #888;vertical-align:middle;margin-right:4px;"></span>
+              <b>${node.short_name || node.long_name || node.id}</b><br>
+              Utilization: <b>${node.utilization}%</b><br>
+              Mean contact distance: <b>${node.mean_contact_distance} km</b><br>
+              Contacts: <b>${node.contact_count}</b>
+            </div>
+          `;
+        }).join('<hr style="margin:4px 0;">');
+        tooltip.style.display = 'block';
+        tooltipOverlay.setPosition(evt.coordinate);
+      } else {
+        tooltip.style.display = 'none';
+      }
+    });
+
+    // Draw colorbar for legend (now 0-40%)
+    function drawUtilizationColorbar() {
+      const canvas = document.getElementById('utilization-colorbar');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width, h = canvas.height;
+      for (let x = 0; x < w; x++) {
+        const util = (x / w) * 40; // 0-40%
+        ctx.fillStyle = getUtilizationColor(util);
+        ctx.fillRect(x, 0, 1, h);
+      }
+      // Draw ticks and labels
+      ctx.font = '11px sans-serif';
+      ctx.fillStyle = '#222';
+      ctx.textAlign = 'center';
+      [0, 10, 20, 30, 40].forEach(val => {
+        const x = Math.round((val / 40) * w);
+        ctx.fillRect(x, h-8, 1, 8);
+        ctx.fillText(val + '%', x, h-12);
+      });
+    }
+    window.addEventListener('DOMContentLoaded', drawUtilizationColorbar);
+    window.addEventListener('resize', drawUtilizationColorbar);
+  </script>
+  <style>
+    #map {
+      height: 100%;
+      width: 100%;
+    }
+    #legend {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      z-index: 1000;
+      max-width: 250px;
+    }
+    /* Remove .settings-toggle and .settings-panel CSS here to use meshinfo.css sitewide styles */
+    .spin {
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .ol-tooltip {
+      position: absolute;
+      background: rgba(255,255,255,0.95);
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      padding: 8px 12px;
+      pointer-events: none;
+      font-size: 0.95em;
+      z-index: 1100;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+  </style>
+{% endblock %} 

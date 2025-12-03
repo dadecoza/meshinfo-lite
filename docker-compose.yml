@@ -9,8 +9,11 @@ services:
       MYSQL_PASSWORD: passw0rd
     volumes:
       - ./mysql_data:/var/lib/mysql
+      - ./custom.cnf:/etc/mysql/conf.d/custom.cnf
     networks:
       - backend
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
   meshinfo:
     build:
       context: .
@@ -19,6 +22,7 @@ services:
       - mariadb
     volumes:
       - ./config.ini:/app/config.ini
+      - ./srtm_data:/app/srtm_data
     environment:
       - PYTHONUNBUFFERED=1
     ports:
@@ -26,7 +30,8 @@ services:
     networks:
       - backend
     restart: always
-  
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false" 
 networks:       
   backend:
     driver: bridge

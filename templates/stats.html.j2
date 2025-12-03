@@ -2,6 +2,19 @@
 
 {% block title %}Stats{% endblock %}
 
+{% block og_title %}Network Statistics | {{ config['mesh']['name'] }}{% endblock %}
+{% block og_description %}Comprehensive statistics for the {{ config['mesh']['short_name'] }} mesh network. View active nodes, message counts, telemetry data, and network performance metrics.{% endblock %}
+{% block og_image_width %}1200{% endblock %}
+{% block og_image_height %}630{% endblock %}
+{% block twitter_title %}Network Statistics | {{ config['mesh']['name'] }}{% endblock %}
+{% block twitter_description %}Comprehensive statistics for the {{ config['mesh']['short_name'] }} mesh network. View active nodes, message counts, telemetry data, and network performance metrics.{% endblock %}
+{% block twitter_image_width %}1200{% endblock %}
+{% block twitter_image_height %}630{% endblock %}
+
+{% block head %}
+  {{ super() }}
+{% endblock %}
+
 {% block content %}
   <h5 class="mb-2 text-gray-500">Stats</h5>
   <h1 class="mb-2 text-xl">Stats</h1>

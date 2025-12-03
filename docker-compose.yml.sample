@@ -1,0 +1,34 @@
+services:
+  mariadb:
+    image: mariadb
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: passw0rd
+      MYSQL_DATABASE: meshdata
+      MYSQL_USER: meshdata
+      MYSQL_PASSWORD: passw0rd
+    volumes:
+      - ./mysql_data:/var/lib/mysql
+      - ./custom.cnf:/etc/mysql/conf.d/custom.cnf
+    networks:
+      - backend
+  meshinfo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      - mariadb
+    volumes:
+      - ./config.ini:/app/config.ini
+      - ./srtm_data:/app/srtm_data
+      # - ./logo.webp:/app/www/images/logos/logo.webp
+    environment:
+      - PYTHONUNBUFFERED=1
+    ports:
+      - 8001:8000
+    networks:
+      - backend
+    restart: always
+networks:       
+  backend:
+    driver: bridge
