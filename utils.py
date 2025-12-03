@@ -212,6 +212,15 @@ def get_role_name(role_value):
     if role_value is None:
         return "Client"
     
+    # Special display name mappings for user-friendly names
+    role_display_names = {
+        7: "TAK",  # TAK enum
+        10: "TAK Tracker",  # TAK_TRACKER enum
+    }
+    
+    if role_value in role_display_names:
+        return role_display_names[role_value]
+    
     try:
         # Get the role name, replace underscores with spaces, and capitalize each word
         role_name = Role(role_value).name.replace('_', ' ')

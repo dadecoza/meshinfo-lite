@@ -119,19 +119,21 @@ class HardwareModel(Enum):
 class Role(Enum):
     """
     Meshtastic node roles
+    from https://buf.build/meshtastic/protobufs/docs/main:meshtastic#meshtastic.Config.DeviceConfig.Role
     """
     CLIENT = 0
     CLIENT_MUTE = 1
     ROUTER = 2
-    ROUTER_CLIENT = 3
-    REPEATER = 4
+    ROUTER_CLIENT = 3  # Deprecated in v2.3.15
+    REPEATER = 4  # Deprecated in v2.7.11
     TRACKER = 5
     SENSOR = 6
-    ATAK = 7
+    TAK = 7
     CLIENT_HIDDEN = 8
     LOST_AND_FOUND = 9
-    ATAK_TRACKER = 10
+    TAK_TRACKER = 10
     ROUTER_LATE = 11
+    CLIENT_BASE = 12
 
 class ShortRole(Enum):
     """
@@ -149,6 +151,7 @@ class ShortRole(Enum):
     LF = 9
     AT = 10
     RL = 11
+    CB = 12
 
 
 class Channel(Enum):
@@ -190,6 +193,29 @@ class ModemPreset(Enum):
     SHORT_FAST = 6
     LONG_MODERATE = 7
     SHORT_TURBO = 8  # Fastest preset with 500kHz bandwidth, not legal in all regions
+
+class RebroadcastMode(Enum):
+    """
+    Meshtastic rebroadcast mode configuration
+    from https://buf.build/meshtastic/protobufs/docs/main:meshtastic#meshtastic.Config.DeviceConfig.RebroadcastMode
+    """
+    ALL = 0
+    ALL_SKIP_DECODING = 1
+    LOCAL_ONLY = 2
+    KNOWN_ONLY = 3
+    NONE = 4
+    CORE_PORTNUMS_ONLY = 5
+
+class BuzzerMode(Enum):
+    """
+    Meshtastic buzzer mode configuration
+    from https://buf.build/meshtastic/protobufs/docs/main:meshtastic#meshtastic.Config.DeviceConfig.BuzzerMode
+    """
+    ALL_ENABLED = 0
+    DISABLED = 1
+    NOTIFICATIONS_ONLY = 2
+    SYSTEM_ONLY = 3
+    DIRECT_MSG_ONLY = 4
 
 class RoutingError(Enum):
     """
@@ -764,3 +790,55 @@ def get_routing_error_description(error_value):
         return f"Unknown error ({error_value})"
     except Exception:
         return f"Unknown error ({error_value})"
+
+def get_rebroadcast_mode_name(rebroadcast_mode_value):
+    """
+    Convert a rebroadcast mode value to a human-readable name.
+    
+    Args:
+        rebroadcast_mode_value: The numeric rebroadcast mode value
+        
+    Returns:
+        A human-readable rebroadcast mode name or "Unknown (value)" if not recognized
+    """
+    if rebroadcast_mode_value is None:
+        return "Unknown"
+    
+    try:
+        for mode in RebroadcastMode:
+            if mode.value == rebroadcast_mode_value:
+                # Convert the enum name to a more readable format
+                words = mode.name.split('_')
+                formatted_words = [word.capitalize() for word in words]
+                return ' '.join(formatted_words)
+        
+        # If not found in our enum, return unknown with the value
+        return f"Unknown ({rebroadcast_mode_value})"
+    except Exception:
+        return f"Unknown ({rebroadcast_mode_value})"
+
+def get_buzzer_mode_name(buzzer_mode_value):
+    """
+    Convert a buzzer mode value to a human-readable name.
+    
+    Args:
+        buzzer_mode_value: The numeric buzzer mode value
+        
+    Returns:
+        A human-readable buzzer mode name or "Unknown (value)" if not recognized
+    """
+    if buzzer_mode_value is None:
+        return "Unknown"
+    
+    try:
+        for mode in BuzzerMode:
+            if mode.value == buzzer_mode_value:
+                # Convert the enum name to a more readable format
+                words = mode.name.split('_')
+                formatted_words = [word.capitalize() for word in words]
+                return ' '.join(formatted_words)
+        
+        # If not found in our enum, return unknown with the value
+        return f"Unknown ({buzzer_mode_value})"
+    except Exception:
+        return f"Unknown ({buzzer_mode_value})"

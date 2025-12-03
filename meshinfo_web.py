@@ -1483,6 +1483,36 @@ def link_node():
         config=config
     )
 
+@app.route('/account.html')
+def account():
+    owner = auth()
+    if not owner:
+        return redirect(url_for('login'))
+    # Don't use cached nodes for account page - always get fresh data from database
+    md = get_meshdata()
+    if not md:
+        abort(503, description="Database connection unavailable")
+    # Clear MeshData cache and get fresh nodes directly from database
+    md.clear_nodes_cache()
+    nodes = md.get_nodes(active=False)  # Get fresh from database, bypassing all caches
+    if not nodes:
+        abort(503, description="Database connection unavailable")
+    mynodes = utils.get_owner_nodes(nodes, owner["email"])
+    response = make_response(render_template(
+        "account.html.j2",
+        auth=owner,
+        config=config,
+        nodes=mynodes,
+        utils=utils,
+        datetime=datetime.datetime,
+        timestamp=datetime.datetime.now(),
+    ))
+    # Add no-cache headers to prevent browser/proxy caching
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
+
 @app.route('/register.html', methods=['GET', 'POST'])
 def register():
     error_message = None

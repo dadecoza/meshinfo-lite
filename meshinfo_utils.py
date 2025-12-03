@@ -721,11 +721,12 @@ def get_role_badge(role_value):
         4: ("RE", "background-color: #198754; color: white;"),     # Repeater - Green
         5: ("T", "background-color: #6c757d; color: white;"),      # Tracker - Gray
         6: ("S", "background-color: #6c757d; color: white;"),      # Sensor - Gray
-        7: ("A", "background-color: #6c757d; color: white;"),      # ATAK - Gray
+        7: ("A", "background-color: #6c757d; color: white;"),      # TAK - Gray
         8: ("CH", "background-color: #0dcaf0; color: #000;"),      # Client Hidden - Light Blue with dark text
         9: ("LF", "background-color: #6c757d; color: white;"),     # Lost and Found - Gray
-        10: ("AT", "background-color: #6c757d; color: white;"),    # ATAK Tracker - Gray
+        10: ("AT", "background-color: #6c757d; color: white;"),    # TAK Tracker - Gray
         11: ("RL", "background-color: #dc3545; color: white;"),    # Router Late - Red
+        12: ("CB", "background-color: #0d6efd; color: white;"),    # Client Base - Dark Blue
     }
     
     return role_mapping.get(role_value, ("?", "background-color: #212529; color: white;")) 

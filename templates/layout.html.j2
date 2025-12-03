@@ -98,6 +98,9 @@
         <li class="nav-item{% if this_page == "my nodes" %} active{% endif %}">
           <a class="nav-link" href="{{ url_for("mynodes") }}"><span class="d-lg-none d-xl-inline">{{ page_icon("my nodes") }}</span>My Nodes</a>
         </li>
+        <li class="nav-item{% if this_page == "account" %} active{% endif %}">
+          <a class="nav-link" href="{{ url_for("account") }}"><span class="d-lg-none d-xl-inline"><i class="bi bi-gear me-1"></i></span>Account</a>
+        </li>
         {% endif %}
          <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" id="toolsDropdown" role="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">

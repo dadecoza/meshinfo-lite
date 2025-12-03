@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, abort
 from datetime import datetime, timedelta
 import logging
 import sys
@@ -6,11 +6,21 @@ import psutil
 from meshinfo_utils import get_meshdata, get_cache_timeout, auth, config, log_cache_stats, log_memory_usage
 from meshdata import MeshData
 from database_cache import DatabaseCache
+from meshinfo_register import Register
 import utils
 import time
 
 # Create API blueprint
 api = Blueprint('api', __name__, url_prefix='/api')
+
+def api_auth():
+    """Authenticate API request using JWT from cookie."""
+    jwt_token = request.cookies.get('jwt')
+    if not jwt_token:
+        return None
+    reg = Register()
+    decoded_jwt = reg.auth(jwt_token)
+    return decoded_jwt
 
 def log_detailed_memory_analysis():
     """Perform detailed memory analysis to identify potential leaks."""
@@ -1230,4 +1240,79 @@ def get_map_data():
         logging.error(f"Error fetching map data: {str(e)}", exc_info=True)
         return jsonify({
             'error': f'Error fetching map data: {str(e)}'
-        }), 500 
+        }), 500
+
+@api.route('/account/change-password', methods=['POST'])
+def api_change_password():
+    """API endpoint to change user password."""
+    user = api_auth()
+    if not user:
+        abort(401)
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'Invalid request data'}), 400
+    
+    old_password = data.get('old_password')
+    new_password = data.get('new_password')
+    confirm_password = data.get('confirm_password')
+    
+    if not old_password or not new_password or not confirm_password:
+        return jsonify({'error': 'All password fields are required'}), 400
+    
+    if new_password != confirm_password:
+        return jsonify({'error': 'New passwords do not match'}), 400
+    
+    reg = Register()
+    result = reg.change_password(user['email'], old_password, new_password)
+    
+    if 'error' in result:
+        return jsonify(result), 400
+    
+    return jsonify(result), 200
+
+@api.route('/account/unlink-node', methods=['POST'])
+def api_unlink_node():
+    """API endpoint to unlink a node from user account."""
+    user = api_auth()
+    if not user:
+        abort(401)
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'Invalid request data'}), 400
+    
+    node_id = data.get('node_id')
+    if not node_id:
+        return jsonify({'error': 'Node ID is required'}), 400
+    
+    reg = Register()
+    result = reg.unlink_node(user['email'], node_id)
+    
+    if 'error' in result:
+        return jsonify(result), 400
+    
+    # Clear all relevant caches to ensure fresh data on next request
+    try:
+        from flask import current_app
+        from flask_caching import Cache
+        # Get the cache instance and delete the cached nodes
+        cache = current_app.extensions.get('cache')
+        if cache:
+            # Clear the memoized cache for nodes
+            cache.delete_memoized('get_cached_nodes')
+            # Also clear the database-level cache in MeshData
+            from meshdata import MeshData
+            md = MeshData()
+            if md:
+                md.clear_nodes_cache()
+    except Exception as e:
+        logging.warning(f"Could not clear nodes cache: {e}")
+        pass  # Don't fail if cache clearing fails
+    
+    # Add no-cache headers to the response
+    response = jsonify(result)
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response, 200 

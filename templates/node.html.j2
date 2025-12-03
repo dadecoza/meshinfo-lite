@@ -374,15 +374,17 @@
                 {% elif node.role == 6 %}
                 Sensor
                 {% elif node.role == 7 %}
-                ATAK
+                TAK
                 {% elif node.role == 8 %}
                 Client Hidden
                 {% elif node.role == 9 %}
                 Lost and Found
                 {% elif node.role == 10 %}
-                ATAK Tracker
+                TAK Tracker
                 {% elif node.role == 11 %}
                 Router Late
+                {% elif node.role == 12 %}
+                Client Base
                 {% else %}
                 Unknown ({{ node.role }})
                 {% endif %}
