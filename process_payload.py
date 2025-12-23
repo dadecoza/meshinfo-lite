@@ -64,8 +64,6 @@ def get_data(msg):
     j = to_json(msg)
     if "decoded" not in j:
         return None
-    if "type" not in j:
-        return None
     portnum = j["decoded"]["portnum"]
     if portnum == portnums_pb2.NODEINFO_APP:
         j["type"] = "nodeinfo"
