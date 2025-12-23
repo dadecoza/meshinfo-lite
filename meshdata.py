@@ -840,7 +840,7 @@ WHERE id = %s ORDER BY ts_created DESC LIMIT 1"""
             frm = data["from"]
             via = self.int_id(topic.split("/")[-1])
             self.verify_node(frm, via)
-        tp = data["type"]
+        tp = data.get("type") or "unknown"
         if tp == "nodeinfo":
             self.store_node(data)
         elif tp == "position":
