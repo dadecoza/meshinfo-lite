@@ -826,9 +826,12 @@ WHERE id = %s ORDER BY ts_created DESC LIMIT 1"""
         sql = """INSERT INTO positionlog
 (id, latitude_i, longitude_i, source) VALUES (%s, %s, %s, %s)"""
         params = (id, lat, lon, source)
-        cur = self.db.cursor()
-        cur.execute(sql, params)
-        cur.close()
+        try:
+            cur = self.db.cursor()
+            cur.execute(sql, params)
+            cur.close()
+        except Exception as e:
+            logging.error(f"Failed to log position for {id}: {e}")
         self.db.commit()
         logging.info(f"Position updated for {id}")
 
