@@ -77,6 +77,7 @@ class HardwareModel(Enum):
     HELTEC_MESH_NODE_T114 = 69
     TRACKER_T1000_E = 71
     RPI_PICO2 = 79
+    WIO_TRACKER_L1 = 99
     PRIVATE_HW = 255
     XIAO = 81
 
@@ -113,5 +114,6 @@ HARDWARE_PHOTOS = {
     HardwareModel.HELTEC_CAPSULE_SENSOR_V3: "HELTEC_CAPSULE_SENSOR_V3.png",
     HardwareModel.TRACKER_T1000_E: "TRACKER_T1000_E.png",
     HardwareModel.RPI_PICO2: "RPI_PICO.png",
-    HardwareModel.NRF52840DK: "NRF52840DK.png"
+    HardwareModel.NRF52840DK: "NRF52840DK.png",
+    HardwareModel.WIO_TRACKER_L1: "TRACKER_L1.png",
 }
